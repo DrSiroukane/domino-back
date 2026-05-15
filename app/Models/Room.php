@@ -25,4 +25,20 @@ class Room extends Model
     {
         return $this->belongsToMany(User::class, 'room_players')->withTimestamps();
     }
+
+    /**
+     * Returns the 0-based seat index of $user within this room (join order),
+     * or null if the user is not a player.
+     */
+    public function getPlayerIndex(User $user): ?int
+    {
+        $players = $this->players()->orderByPivot('created_at')->get();
+        foreach ($players as $index => $player) {
+            if ($player->id === $user->id) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
 }

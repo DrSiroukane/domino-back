@@ -1,0 +1,62 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Game;
+
+use App\Services\Game\Data\ClientView;
+use App\Services\Game\Data\MatchState;
+use App\Services\Game\Data\Tile;
+
+/**
+ * Strips sensitive data from the canonical MatchState before sending to a client.
+ *
+ * Rules:
+ *  - Opponents' tile pips are hidden; only hand SIZE is revealed.
+ *  - Boneyard tiles are hidden; only the COUNT is revealed.
+ *  - The board, history, scores, and config are fully public.
+ */
+final class RedactorService
+{
+    public function redact(MatchState $match, int $playerIndex): ClientView
+    {
+        $round = $match->round;
+
+        $handCounts = array_map(fn (array $hand) => count($hand), $round->hands);
+
+        $myHand = array_values(
+            array_map(fn (Tile $t) => $t->toArray(), $round->hands[$playerIndex])
+        );
+
+        $board = array_values(
+            array_map(fn ($entry) => $entry->toArray(), $round->board)
+        );
+
+        $history = array_values(
+            array_map(fn ($entry) => $entry->toArray(), $round->history)
+        );
+
+        return new ClientView(
+            playerIndex: $playerIndex,
+            config: $match->config->toArray(),
+            myHand: $myHand,
+            handCounts: $handCounts,
+            board: $board,
+            leftEnd: $round->leftEnd,
+            rightEnd: $round->rightEnd,
+            boneyardCount: count($round->boneyard),
+            currentPlayer: $round->currentPlayer,
+            firstMover: $round->firstMover,
+            mandatoryFirstTile: $round->mandatoryFirstTile,
+            passes: $round->passes,
+            roundOver: $round->roundOver,
+            history: $history,
+            roundResult: $round->roundResult?->toArray(),
+            scores: $match->scores,
+            matchOver: $match->matchOver,
+            matchWinner: $match->matchWinner,
+            lastWinner: $match->lastWinner,
+            roundsPlayed: $match->roundsPlayed,
+        );
+    }
+}

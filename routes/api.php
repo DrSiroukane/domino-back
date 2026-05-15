@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Events\TestBroadcast;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\GameController;
 use App\Http\Controllers\RoomController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -19,6 +20,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rooms', [RoomController::class, 'store']);
     Route::post('/rooms/{room}/join', [RoomController::class, 'join']);
     Route::post('/rooms/{room}/leave', [RoomController::class, 'leave']);
+
+    // In-game move actions
+    Route::post('/rooms/{room}/play', [GameController::class, 'play']);
+    Route::post('/rooms/{room}/draw', [GameController::class, 'draw']);
+    Route::post('/rooms/{room}/pass', [GameController::class, 'pass']);
 });
 
 // Local-only helper to trigger a Reverb broadcast for the ReverbTest component.
