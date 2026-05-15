@@ -11,11 +11,13 @@ use App\Enums\RoomStatus;
 use App\Events\GameStateUpdated;
 use App\Exceptions\InvalidMoveException;
 use App\Http\Requests\PlayTileRequest;
+use App\Jobs\TurnTimeoutJob;
 use App\Models\Room;
 use App\Services\Game\Data\MatchState;
 use App\Services\Game\RedactorService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class GameController extends Controller
 {
@@ -47,6 +49,24 @@ class GameController extends Controller
         });
     }
 
+    /** Returns the current redacted state for the authenticated player (used for reconnection). */
+    public function state(Request $request, Room $room): JsonResponse
+    {
+        if ($room->status !== RoomStatus::Playing) {
+            return response()->json(['message' => 'Game is not in progress.'], 422);
+        }
+
+        $playerIndex = $room->getPlayerIndex($request->user());
+        if ($playerIndex === null) {
+            return response()->json(['message' => 'You are not seated in this room.'], 403);
+        }
+
+        $match = MatchState::fromArray($room->match_state);
+        $view = $this->redactor->redact($match, $playerIndex);
+
+        return response()->json($view->toArray());
+    }
+
     // ------------------------------------------------------------------ //
 
     private function handleMove(Room $room, Request $request, callable $action): JsonResponse
@@ -66,6 +86,9 @@ class GameController extends Controller
             return response()->json(['message' => $e->getMessage(), 'code' => $e->errorCode], 422);
         }
 
+        // Schedule authoritative turn timeout when a timer is configured
+        $this->scheduleTimeout($room, $match);
+
         $this->broadcastAll($room, $match);
 
         $view = $this->redactor->redact($match, $playerIndex);
@@ -76,9 +99,30 @@ class GameController extends Controller
     /** Fires a per-player GameStateUpdated event for every seat. */
     private function broadcastAll(Room $room, MatchState $match): void
     {
-        for ($i = 0; $i < $match->round->numPlayers; $i++) {
+        for ($i = 0; $i < count($match->round->hands); $i++) {
             $view = $this->redactor->redact($match, $i);
             event(new GameStateUpdated($room->id, $view));
         }
+    }
+
+    /**
+     * Generates a fresh turn token, saves it to the room, and dispatches a
+     * delayed TurnTimeoutJob when a turn timer is configured and the game is live.
+     */
+    private function scheduleTimeout(Room $room, MatchState $match): void
+    {
+        $timerSeconds = $match->config->turnTimer;
+
+        if ($timerSeconds <= 0 || $match->matchOver || $match->round->roundOver) {
+            return;
+        }
+
+        $match->turnToken = Str::uuid()->toString();
+        $match->turnExpiresAt = now()->timestamp + $timerSeconds;
+
+        $room->update(['match_state' => $match->toArray()]);
+
+        TurnTimeoutJob::dispatch($room->id, $match->round->currentPlayer, $match->turnToken)
+            ->delay($timerSeconds);
     }
 }

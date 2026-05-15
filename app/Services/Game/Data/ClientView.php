@@ -38,6 +38,7 @@ readonly class ClientView
         public ?int $matchWinner,
         public ?int $lastWinner,
         public int $roundsPlayed,
+        public ?int $turnExpiresAt = null,
     ) {}
 
     public function toArray(): array
@@ -63,6 +64,7 @@ readonly class ClientView
             'matchWinner' => $this->matchWinner,
             'lastWinner' => $this->lastWinner,
             'roundsPlayed' => $this->roundsPlayed,
+            'turnExpiresAt' => $this->turnExpiresAt,
         ];
     }
 }

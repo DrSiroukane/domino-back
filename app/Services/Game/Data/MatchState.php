@@ -17,6 +17,8 @@ class MatchState
         public ?int $matchWinner,
         public ?int $lastWinner,
         public int $roundsPlayed,
+        public ?string $turnToken = null,
+        public ?int $turnExpiresAt = null,
     ) {}
 
     public function toArray(): array
@@ -29,6 +31,8 @@ class MatchState
             'matchWinner' => $this->matchWinner,
             'lastWinner' => $this->lastWinner,
             'roundsPlayed' => $this->roundsPlayed,
+            'turnToken' => $this->turnToken,
+            'turnExpiresAt' => $this->turnExpiresAt,
         ];
     }
 
@@ -42,6 +46,8 @@ class MatchState
             matchWinner: isset($data['matchWinner']) && $data['matchWinner'] !== null ? (int) $data['matchWinner'] : null,
             lastWinner: isset($data['lastWinner']) && $data['lastWinner'] !== null ? (int) $data['lastWinner'] : null,
             roundsPlayed: (int) $data['roundsPlayed'],
+            turnToken: $data['turnToken'] ?? null,
+            turnExpiresAt: isset($data['turnExpiresAt']) && $data['turnExpiresAt'] !== null ? (int) $data['turnExpiresAt'] : null,
         );
     }
 }

@@ -57,6 +57,7 @@ final class RedactorService
             matchWinner: $match->matchWinner,
             lastWinner: $match->lastWinner,
             roundsPlayed: $match->roundsPlayed,
+            turnExpiresAt: $match->turnExpiresAt,
         );
     }
 }
