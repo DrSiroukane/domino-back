@@ -39,6 +39,12 @@ readonly class ClientView
         public ?int $lastWinner,
         public int $roundsPlayed,
         public ?int $turnExpiresAt = null,
+        /** ELO change for this player after the match ended (null while match is in progress). */
+        public ?int $eloChange = null,
+        /** New ELO rating for this player after the match ended. */
+        public ?int $newElo = null,
+        /** Seat indices currently occupied by AI bots. */
+        public array $botSeats = [],
     ) {}
 
     public function toArray(): array
@@ -65,6 +71,9 @@ readonly class ClientView
             'lastWinner' => $this->lastWinner,
             'roundsPlayed' => $this->roundsPlayed,
             'turnExpiresAt' => $this->turnExpiresAt,
+            'eloChange' => $this->eloChange,
+            'newElo' => $this->newElo,
+            'botSeats' => $this->botSeats,
         ];
     }
 }

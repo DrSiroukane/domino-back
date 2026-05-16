@@ -18,7 +18,10 @@ use App\Services\Game\Data\Tile;
  */
 final class RedactorService
 {
-    public function redact(MatchState $match, int $playerIndex): ClientView
+    /**
+     * @param  array<int, array{delta: int, newElo: int}>  $eloDeltas  Seat → ELO result; populated only when matchOver
+     */
+    public function redact(MatchState $match, int $playerIndex, array $eloDeltas = []): ClientView
     {
         $round = $match->round;
 
@@ -35,6 +38,9 @@ final class RedactorService
         $history = array_values(
             array_map(fn ($entry) => $entry->toArray(), $round->history)
         );
+
+        $eloChange = isset($eloDeltas[$playerIndex]) ? $eloDeltas[$playerIndex]['delta'] : null;
+        $newElo = isset($eloDeltas[$playerIndex]) ? $eloDeltas[$playerIndex]['newElo'] : null;
 
         return new ClientView(
             playerIndex: $playerIndex,
@@ -58,6 +64,9 @@ final class RedactorService
             lastWinner: $match->lastWinner,
             roundsPlayed: $match->roundsPlayed,
             turnExpiresAt: $match->turnExpiresAt,
+            eloChange: $eloChange,
+            newElo: $newElo,
+            botSeats: $match->botSeats,
         );
     }
 }

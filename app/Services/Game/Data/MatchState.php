@@ -9,6 +9,10 @@ class MatchState
     /**
      * @param  int[]  $scores
      */
+    /**
+     * @param  int[]  $scores
+     * @param  int[]  $botSeats  Seat indices occupied by AI bots (substituted for disconnected players)
+     */
     public function __construct(
         public MatchConfig $config,
         public RoundState $round,
@@ -19,6 +23,7 @@ class MatchState
         public int $roundsPlayed,
         public ?string $turnToken = null,
         public ?int $turnExpiresAt = null,
+        public array $botSeats = [],
     ) {}
 
     public function toArray(): array
@@ -33,6 +38,7 @@ class MatchState
             'roundsPlayed' => $this->roundsPlayed,
             'turnToken' => $this->turnToken,
             'turnExpiresAt' => $this->turnExpiresAt,
+            'botSeats' => $this->botSeats,
         ];
     }
 
@@ -48,6 +54,7 @@ class MatchState
             roundsPlayed: (int) $data['roundsPlayed'],
             turnToken: $data['turnToken'] ?? null,
             turnExpiresAt: isset($data['turnExpiresAt']) && $data['turnExpiresAt'] !== null ? (int) $data['turnExpiresAt'] : null,
+            botSeats: array_map('intval', $data['botSeats'] ?? []),
         );
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Events\TestBroadcast;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\RoomController;
 use Illuminate\Http\Request;
@@ -26,6 +27,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rooms/{room}/draw', [GameController::class, 'draw']);
     Route::post('/rooms/{room}/pass', [GameController::class, 'pass']);
     Route::get('/rooms/{room}/state', [GameController::class, 'state']);
+
+    // Bot substitution (any seated player may substitute a disconnected opponent)
+    Route::post('/rooms/{room}/substitute-bot/{seatIndex}', [GameController::class, 'substituteBot']);
+
+    // In-game chat
+    Route::post('/rooms/{room}/chat', [ChatController::class, 'store']);
 });
 
 // Local-only helper to trigger a Reverb broadcast for the ReverbTest component.
