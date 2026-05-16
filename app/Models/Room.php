@@ -26,6 +26,12 @@ class Room extends Model
         return $this->belongsToMany(User::class, 'room_players')->withTimestamps();
     }
 
+    /** Returns display names for each seat in join order. */
+    public function getSeatNames(): array
+    {
+        return $this->players()->orderByPivot('created_at')->pluck('name')->toArray();
+    }
+
     /**
      * Returns the 0-based seat index of $user within this room (join order),
      * or null if the user is not a player.

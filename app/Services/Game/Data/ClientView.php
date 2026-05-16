@@ -45,6 +45,10 @@ readonly class ClientView
         public ?int $newElo = null,
         /** Seat indices currently occupied by AI bots. */
         public array $botSeats = [],
+        /** Result of the previous round (including pre-round scores), for showing the round-over modal after auto-advance. */
+        public ?array $lastRoundResult = null,
+        /** Display names for each seat, in seat order. */
+        public array $seatNames = [],
     ) {}
 
     public function toArray(): array
@@ -74,6 +78,8 @@ readonly class ClientView
             'eloChange' => $this->eloChange,
             'newElo' => $this->newElo,
             'botSeats' => $this->botSeats,
+            'lastRoundResult' => $this->lastRoundResult,
+            'seatNames' => $this->seatNames,
         ];
     }
 }

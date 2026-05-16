@@ -672,6 +672,9 @@ final class GameEngine
         $updated->matchWinner = $matchWinner;
         $updated->lastWinner = $lastWinner;
         $updated->roundsPlayed = $match->roundsPlayed + 1;
+        $updated->lastRoundResult = $match->round->roundResult !== null
+            ? array_merge($match->round->roundResult->toArray(), ['previousScores' => $match->scores])
+            : null;
 
         return $updated;
     }

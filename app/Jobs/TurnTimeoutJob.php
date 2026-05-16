@@ -80,9 +80,10 @@ class TurnTimeoutJob implements ShouldQueue
         }
 
         // Broadcast redacted state to every seat
+        $seatNames = $room->getSeatNames();
         $numPlayers = \count($match->round->hands);
         for ($i = 0; $i < $numPlayers; $i++) {
-            event(new GameStateUpdated($room->id, $redactor->redact($match, $i, $eloDeltas)));
+            event(new GameStateUpdated($room->id, $redactor->redact($match, $i, $eloDeltas, $seatNames)));
         }
 
         // Schedule the next human player's timeout

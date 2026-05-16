@@ -67,7 +67,7 @@ class GameController extends Controller
         }
 
         $match = MatchState::fromArray($room->match_state);
-        $view = $this->redactor->redact($match, $playerIndex);
+        $view = $this->redactor->redact($match, $playerIndex, seatNames: $room->getSeatNames());
 
         return response()->json($view->toArray());
     }
@@ -153,7 +153,7 @@ class GameController extends Controller
 
         $this->broadcastAll($room, $match, $eloDeltas);
 
-        $view = $this->redactor->redact($match, $playerIndex, $eloDeltas);
+        $view = $this->redactor->redact($match, $playerIndex, $eloDeltas, $room->getSeatNames());
 
         return response()->json($view->toArray());
     }
@@ -161,8 +161,9 @@ class GameController extends Controller
     /** Fires a per-player GameStateUpdated event for every seat. */
     private function broadcastAll(Room $room, MatchState $match, array $eloDeltas = []): void
     {
+        $seatNames = $room->getSeatNames();
         for ($i = 0; $i < count($match->round->hands); $i++) {
-            $view = $this->redactor->redact($match, $i, $eloDeltas);
+            $view = $this->redactor->redact($match, $i, $eloDeltas, $seatNames);
             event(new GameStateUpdated($room->id, $view));
         }
     }

@@ -20,8 +20,9 @@ final class RedactorService
 {
     /**
      * @param  array<int, array{delta: int, newElo: int}>  $eloDeltas  Seat → ELO result; populated only when matchOver
+     * @param  string[]  $seatNames  Display names for each seat in seat order
      */
-    public function redact(MatchState $match, int $playerIndex, array $eloDeltas = []): ClientView
+    public function redact(MatchState $match, int $playerIndex, array $eloDeltas = [], array $seatNames = []): ClientView
     {
         $round = $match->round;
 
@@ -67,6 +68,8 @@ final class RedactorService
             eloChange: $eloChange,
             newElo: $newElo,
             botSeats: $match->botSeats,
+            lastRoundResult: $match->lastRoundResult,
+            seatNames: $seatNames,
         );
     }
 }
