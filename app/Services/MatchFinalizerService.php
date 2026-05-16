@@ -26,6 +26,11 @@ final class MatchFinalizerService
             return [];
         }
 
+        // Guard against double-finalization — once a room is finished, stats are immutable.
+        if ($room->status === 'finished') {
+            return [];
+        }
+
         $players = $room->players()->orderByPivot('created_at')->get();
         $numPlayers = count($players);
 

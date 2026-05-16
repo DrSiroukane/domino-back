@@ -16,6 +16,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -29,6 +30,10 @@ class TurnTimeoutJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 3;
+
+    public int $backoff = 5;
+
     public function __construct(
         public readonly int $roomId,
         public readonly int $playerIndex,
@@ -39,6 +44,11 @@ class TurnTimeoutJob implements ShouldQueue
     {
         $room = Room::find($this->roomId);
         if (! $room || $room->status !== RoomStatus::Playing) {
+            Log::warning('TurnTimeoutJob: room not found or not playing', [
+                'room_id' => $this->roomId,
+                'player'  => $this->playerIndex,
+            ]);
+
             return;
         }
 
