@@ -1,58 +1,175 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Domino Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Laravel 13 REST API and WebSocket server for the **Domino Double-Six** multiplayer game.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Tech Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+| Layer | Technology |
+|---|---|
+| Framework | Laravel 13 (PHP 8.3+) |
+| Authentication | Laravel Sanctum (token-based) |
+| Real-time | Laravel Reverb (WebSockets) |
+| Database | MySQL / SQLite |
+| Queue | Laravel Queue (sync / database driver) |
+| Testing | Pest 4 |
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Getting Started
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### Prerequisites
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- PHP 8.3+
+- Composer
+- A running MySQL instance (or SQLite for local dev)
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+### Install & Setup
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+### Running the Stack
 
-## Contributing
+You need three processes running simultaneously:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+# HTTP API
+php artisan serve
 
-## Code of Conduct
+# WebSocket server (Laravel Reverb)
+php artisan reverb:start
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+# Queue worker (for async events / bot turns)
+php artisan queue:work
+```
 
-## Security Vulnerabilities
+Or use the all-in-one dev script:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+composer dev
+```
 
-## License
+---
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## API Reference
+
+All endpoints (except `/register`, `/login`, and `/health`) require a `Bearer` token via Laravel Sanctum.
+
+### Auth
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/register` | Register a new user |
+| `POST` | `/api/login` | Obtain a Sanctum token |
+| `POST` | `/api/logout` | Revoke current token |
+| `GET` | `/api/user` | Get authenticated user |
+
+### Rooms
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/rooms` | List available rooms |
+| `POST` | `/api/rooms` | Create a new room |
+| `POST` | `/api/rooms/{room}/join` | Join a room |
+| `POST` | `/api/rooms/{room}/leave` | Leave a room |
+
+### Game Actions
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/rooms/{room}/state` | Get the current redacted game state |
+| `POST` | `/api/rooms/{room}/play` | Play a tile |
+| `POST` | `/api/rooms/{room}/draw` | Draw a tile from the boneyard |
+| `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw) |
+| `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot |
+
+### Chat
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/rooms/{room}/chat` | Send a chat message in a room |
+
+### Health
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/health` | Database connectivity check |
+
+---
+
+## WebSocket Channels
+
+Authentication for private/presence channels goes through `/api/broadcasting/auth` (Sanctum token required).
+
+| Channel | Type | Description |
+|---|---|---|
+| `room.{id}` | Presence | Tracks who is connected to a room; carries game state events |
+| `room.{roomId}.seat.{seatIndex}` | Private | Per-seat channel for sending redacted state only to its owner |
+
+### Key Broadcast Events
+
+- `GameStateUpdated` — fired after every validated game action; carries the per-seat `ClientView`
+- `ChatMessageSent` — fired when a player sends a chat message
+
+---
+
+## Architecture
+
+### Game State
+
+- The `Room` model holds a JSON `match_state` column that is the single source of truth for the entire game state.
+- `GameEngine` contains all validation and state-transition logic.
+- `RedactorService` strips opponent hands before any state is sent to a client, producing a `ClientView`.
+- Actions live in `App\Actions\Game` (`PlayTileAction`, `DrawTileAction`, `PassTurnAction`).
+
+### Real-time Flow
+
+```
+Client HTTP action → Controller → Action → GameEngine (validate + apply)
+    → broadcast GameStateUpdated → Reverb → RedactorService per seat
+    → each client receives only its own ClientView
+```
+
+### Bot Players
+
+`BotPlayer` service handles automated turns for AI opponents. `TurnTimeoutJob` triggers bot moves when a human player's turn timer expires.
+
+---
+
+## Testing
+
+```bash
+composer test
+```
+
+Uses **Pest 4** with the Laravel plugin. Integration tests hit a real database — do not mock the DB layer.
+
+---
+
+## Environment Variables (key ones)
+
+| Variable | Description |
+|---|---|
+| `APP_ENV` | `local` / `production` |
+| `DB_CONNECTION` | `mysql` or `sqlite` |
+| `REVERB_APP_ID` | Reverb application ID |
+| `REVERB_APP_KEY` | Reverb application key |
+| `REVERB_APP_SECRET` | Reverb application secret |
+| `REVERB_HOST` | Host Reverb listens on (default `127.0.0.1`) |
+| `REVERB_PORT` | Port Reverb listens on (default `8080`) |
+| `QUEUE_CONNECTION` | `sync` for local, `database` for production |
+
+---
+
+## Code Conventions
+
+- `declare(strict_types=1)` in every PHP file.
+- PHP 8.3+ features: readonly properties, enums, match expressions.
+- Thin controllers — game logic lives in `App\Services\Game` and `App\Actions\Game`.
+- DB columns: `snake_case`. Methods/variables: `camelCase`. Classes: `PascalCase`.
