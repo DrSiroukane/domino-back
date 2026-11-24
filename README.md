@@ -86,7 +86,7 @@ All endpoints (except `/register`, `/login`, and `/health`) require a `Bearer` t
 | `GET` | `/api/rooms/{room}/state` | Get the current redacted game state |
 | `POST` | `/api/rooms/{room}/play` | Play a tile (`tile_id`, `side`, optional hint `call`) |
 | `POST` | `/api/rooms/{room}/draw` | Draw a tile from the boneyard |
-| `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw) |
+| `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw); optional hint `call`: only `close_game` |
 | `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot (seat must be absent from the presence channel) |
 | `POST` | `/api/rooms/{room}/reclaim` | Take your seat back from the bot |
 
@@ -147,6 +147,16 @@ Client HTTP action → Controller → Action → GameEngine (validate + apply)
 ### Hint Calls (house rule)
 
 Rooms created with `settings.hintCalls: true` (4 players, teams) let a player attach one public hint call to a play: `hug_it` (opening double only), `one`, `good`, `dead`, `my_head`, `close_game`. `GameEngine::legalCalls` checks timing only (no call when the play leaves one tile), never truthfulness, so bluffing is allowed. Calls are stored on the play's history entry (`call`, `callNumber`) and reach every seat through the normal `ClientView`.
+
+A player who must pass may say `close_game` with the pass (`GameEngine::legalPassCalls`), except when the game is already closed: the pass that blocks the round, or both open numbers fully on the board (`GameEngine::endsAreDead`). `GameEngine::passedNumbers` rebuilds, from the history, the open ends each player passed on (public information).
+
+Bots (`HintCallAdvisor`) make honest calls (rare bluffs on harder levels), answer a partner's *hug it*, read partner/opponent calls, avoid leaving their partner stuck on numbers they passed on, prefer leaving an opponent stuck, and say `close_game` when passing with a low hand.
+
+### Scoring
+
+- Domino: the winners score the pips left in the opposing hands. There is no capicúa bonus.
+- Blocked: decided by the room's `blockedTiebreak` (`sum` or `low-player`); the winners score the losing team's pips, a tie scores nothing.
+- After every round, `lastRoundResult` carries the result, `previousScores` and `finalHands` (every hand's leftover tiles). Those hands are public once the round is over; the current round's hands are still never sent to other seats.
 
 ### Bot Players
 

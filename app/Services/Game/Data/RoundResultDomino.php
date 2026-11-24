@@ -10,8 +10,6 @@ readonly class RoundResultDomino implements RoundResult
         public int $winner,
         public int $points,
         public array $handTotals,
-        public bool $capicua = false,
-        public int $capicuaBonus = 0,
         public ?int $winningTeam = null,
     ) {}
 
@@ -37,8 +35,6 @@ readonly class RoundResultDomino implements RoundResult
             'winner' => $this->winner,
             'points' => $this->points,
             'handTotals' => $this->handTotals,
-            'capicua' => $this->capicua,
-            'capicuaBonus' => $this->capicuaBonus,
         ];
         if ($this->winningTeam !== null) {
             $data['winningTeam'] = $this->winningTeam;
@@ -53,8 +49,6 @@ readonly class RoundResultDomino implements RoundResult
             (int) $data['winner'],
             (int) $data['points'],
             array_map('intval', $data['handTotals']),
-            (bool) ($data['capicua'] ?? false),
-            (int) ($data['capicuaBonus'] ?? 0),
             isset($data['winningTeam']) ? (int) $data['winningTeam'] : null,
         );
     }

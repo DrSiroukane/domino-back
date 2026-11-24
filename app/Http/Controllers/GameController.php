@@ -13,12 +13,14 @@ use App\Http\Requests\PlayTileRequest;
 use App\Models\Room;
 use App\Services\BotPlayer;
 use App\Services\Game\Data\MatchState;
+use App\Services\Game\Enums\HintCall;
 use App\Services\GameBroadcaster;
 use App\Services\MatchFinalizerService;
 use App\Services\PresenceService;
 use App\Services\TurnTimerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class GameController extends Controller
 {
@@ -47,7 +49,12 @@ class GameController extends Controller
 
     public function pass(Request $request, Room $room): JsonResponse
     {
-        return $this->handleMove($room, $request, fn (Room $locked, int $seat): MatchState => (new PassTurnAction)->execute($locked, $seat));
+        // Optional "close the game" call made with the pass.
+        $call = $request->validate([
+            'call' => ['sometimes', 'nullable', 'string', Rule::enum(HintCall::class)],
+        ])['call'] ?? null;
+
+        return $this->handleMove($room, $request, fn (Room $locked, int $seat): MatchState => (new PassTurnAction)->execute($locked, $seat, $call));
     }
 
     /**

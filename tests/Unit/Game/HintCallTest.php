@@ -238,4 +238,107 @@ class HintCallTest extends TestCase
             HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'left'),
         );
     }
+
+    // ------------------------------------------------------------------ //
+    // Passing: "close the game" call and passed-on numbers
+    // ------------------------------------------------------------------ //
+
+    public function test_pass_allows_only_close_the_game(): void
+    {
+        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+
+        $this->assertSame([HintCall::CloseGame], GameEngine::legalPassCalls($this->config(), $round, 0));
+        $this->assertSame([], GameEngine::legalPassCalls($this->config(hintCalls: false), $round, 0));
+        $this->assertSame([], GameEngine::legalPassCalls($this->config(numPlayers: 2, teams: false), $round, 0));
+    }
+
+    public function test_no_pass_call_on_the_last_tile(): void
+    {
+        $round = $this->round([$this->t(1, 2)]);
+
+        $this->assertSame([], GameEngine::legalPassCalls($this->config(), $round, 0));
+    }
+
+    public function test_no_close_the_game_on_the_pass_that_ends_the_round(): void
+    {
+        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+        $round->passes = 3; // the other three already passed: this pass blocks the round
+
+        $this->assertSame([], GameEngine::legalPassCalls($this->config(), $round, 0));
+    }
+
+    public function test_no_close_the_game_when_nobody_can_follow_either_end(): void
+    {
+        // All seven 6s are on the board and both ends show 6: the game is already closed.
+        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+        $round->board = array_map(
+            fn (int $x) => new BoardEntryStart($this->t(min($x, 6), max($x, 6)), 6, 6),
+            [0, 1, 2, 3, 4, 5, 6],
+        );
+
+        $this->assertTrue(GameEngine::endsAreDead($round));
+        $this->assertSame([], GameEngine::legalPassCalls($this->config(), $round, 0));
+    }
+
+    public function test_pass_turn_records_the_call(): void
+    {
+        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+
+        $after = GameEngine::passTurn($round, 0, [], HintCall::CloseGame);
+        $entry = end($after->history);
+
+        $this->assertSame('pass', $entry->action);
+        $this->assertSame('close_game', $entry->call);
+        $this->assertSame(['player' => 0, 'action' => 'pass', 'call' => 'close_game', 'callNumber' => null], $entry->toArray());
+    }
+
+    public function test_passed_numbers_are_the_open_ends_at_each_pass(): void
+    {
+        $history = [
+            new HistoryEntry(0, 'play', $this->t(6, 6), 'start'),
+            new HistoryEntry(1, 'pass'),                                 // ends 6 | 6
+            new HistoryEntry(2, 'play', $this->t(6, 2), 'right'),        // ends 6 | 2
+            new HistoryEntry(3, 'play', $this->t(4, 6), 'left'),         // ends 4 | 2
+            new HistoryEntry(0, 'pass'),                                 // ends 4 | 2
+            new HistoryEntry(1, 'pass'),                                 // ends 4 | 2
+        ];
+        $round = $this->round([], history: $history);
+
+        $this->assertSame([1 => [2, 4, 6], 0 => [2, 4]], GameEngine::passedNumbers($round));
+    }
+
+    public function test_bot_avoids_leaving_partner_stuck_again(): void
+    {
+        // Partner (seat 2) passed on 6 | 6.
+        $history = [new HistoryEntry(1, 'play', $this->t(6, 6), 'start'), new HistoryEntry(2, 'pass')];
+        $round = $this->round([$this->t(6, 1), $this->t(6, 5)], history: $history);
+        $round->hands[0][] = new Tile(6, 6, 99); // a second 6-6 only for the test: it would keep 6 | 6 open
+
+        $this->assertGreaterThan(
+            HintCallAdvisor::scoreMove($round, 0, new Tile(6, 6, 99), 'right'),
+            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'right'),
+        );
+    }
+
+    public function test_bot_prefers_leaving_an_opponent_stuck(): void
+    {
+        // Opponent (seat 1) passed on 6 | 6.
+        $history = [new HistoryEntry(3, 'play', $this->t(6, 6), 'start'), new HistoryEntry(1, 'pass')];
+        $round = $this->round([$this->t(6, 1)], history: $history);
+
+        $this->assertGreaterThan(
+            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'right'),
+            HintCallAdvisor::scoreMove($round, 0, new Tile(6, 6, 99), 'right'),
+        );
+    }
+
+    public function test_bot_calls_close_the_game_when_passing_with_a_low_hand(): void
+    {
+        $low = $this->round([$this->t(0, 1), $this->t(0, 2), $this->t(1, 1)]);    // 5 pips
+        $high = $this->round([$this->t(5, 5), $this->t(4, 3), $this->t(1, 1)]);   // 19 pips
+
+        $this->assertSame(HintCall::CloseGame, HintCallAdvisor::choosePassCall($this->config(), $low, 0));
+        $this->assertNull(HintCallAdvisor::choosePassCall($this->config(), $high, 0));
+        $this->assertNull(HintCallAdvisor::choosePassCall($this->config(hintCalls: false), $low, 0));
+    }
 }

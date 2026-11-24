@@ -23,8 +23,6 @@ use App\Services\Game\Enums\HintCall;
  */
 final class GameEngine
 {
-    public const int CAPICUA_BONUS = 30;
-
     // ------------------------------------------------------------------ //
     // Tile helpers
     // ------------------------------------------------------------------ //
@@ -334,6 +332,79 @@ final class GameEngine
     }
 
     /**
+     * Calls a player may make while passing: only "close the game" (the hand
+     * is low, so the partner should help block). Same table rules as
+     * legalCalls: partnership games with the house rule on, and not on the
+     * player's last tile. Never once the game is already closed — this pass
+     * ends the round, or nobody can follow either open end.
+     *
+     * @return list<HintCall>
+     */
+    public static function legalPassCalls(MatchConfig $config, RoundState $state, int $playerIdx): array
+    {
+        if (! $config->hintCallsActive() || count($state->hands[$playerIdx] ?? []) <= 1) {
+            return [];
+        }
+        if ($state->passes + 1 >= $state->numPlayers || self::endsAreDead($state)) {
+            return [];
+        }
+
+        return [HintCall::CloseGame];
+    }
+
+    /**
+     * True when every tile of both open numbers is already on the board, so
+     * nobody can play again this round (public information).
+     */
+    public static function endsAreDead(RoundState $state): bool
+    {
+        if ($state->leftEnd === null || $state->rightEnd === null) {
+            return false;
+        }
+        $onBoard = fn (int $n): int => count(array_filter(
+            $state->board,
+            fn ($e) => $e->tile->a === $n || $e->tile->b === $n,
+        ));
+
+        // A double-six set has 7 tiles showing each number.
+        return $onBoard($state->leftEnd) === 7 && $onBoard($state->rightEnd) === 7;
+    }
+
+    /**
+     * Numbers each player could not follow when they passed this round, i.e.
+     * both open ends at the moment of every pass. Public information (everyone
+     * saw the ends), rebuilt from the history so old saved rounds work too.
+     *
+     * @return array<int, list<int>> player index => sorted numbers
+     */
+    public static function passedNumbers(RoundState $state): array
+    {
+        $left = null;
+        $right = null;
+        $out = [];
+        foreach ($state->history as $h) {
+            if ($h->action === 'play' && $h->tile !== null) {
+                $t = $h->tile;
+                if ($h->side === 'start') {
+                    $left = $t->a;
+                    $right = $t->b;
+                } elseif ($h->side === 'left') {
+                    $left = $t->a === $left ? $t->b : $t->a;
+                } else {
+                    $right = $t->a === $right ? $t->b : $t->a;
+                }
+            } elseif ($h->action === 'pass' && $left !== null) {
+                $out[$h->player] = array_values(array_unique([...($out[$h->player] ?? []), $left, $right]));
+            }
+        }
+        foreach ($out as &$nums) {
+            sort($nums);
+        }
+
+        return $out;
+    }
+
+    /**
      * The number a call refers to: the open end left by placing `$tile` on `$side`.
      * Null when the tile does not fit that side.
      */
@@ -391,11 +462,6 @@ final class GameEngine
             return $s;
         }
 
-        // Capicúa eligibility: last tile that fits on both open ends simultaneously.
-        // Computed on the original (pre-play) state.
-        $capicuaEligible = count($state->board) > 0
-            && count(self::legalSidesForTile($state, $tile)) === 2;
-
         // Remove from hand
         array_splice($newHands[$playerIdx], $tIdx, 1);
 
@@ -436,12 +502,7 @@ final class GameEngine
 
         if (count($newHands[$playerIdx]) === 0) {
             $s->roundOver = true;
-            $s->roundResult = self::computeRoundResult(
-                $s,
-                $playerIdx,
-                'domino',
-                ['capicua' => $capicuaEligible],
-            );
+            $s->roundResult = self::computeRoundResult($s, $playerIdx, 'domino');
         }
 
         return $s;
@@ -453,12 +514,16 @@ final class GameEngine
      *
      * @param  array{blockedTiebreak?: string}  $opts
      */
-    public static function passTurn(RoundState $state, int $playerIdx, array $opts = []): RoundState
-    {
+    public static function passTurn(
+        RoundState $state,
+        int $playerIdx,
+        array $opts = [],
+        ?HintCall $call = null, // validated by the caller (see legalPassCalls)
+    ): RoundState {
         $s = clone $state;
         $s->history = array_values($state->history);
 
-        $s->history[] = new HistoryEntry($playerIdx, 'pass');
+        $s->history[] = new HistoryEntry($playerIdx, 'pass', call: $call?->value);
         $s->passes = $state->passes + 1;
         $s->currentPlayer = ($playerIdx + 1) % $state->numPlayers;
 
@@ -499,7 +564,7 @@ final class GameEngine
     /**
      * Computes the result of a finished round.
      *
-     * @param  array{capicua?: bool, blockedTiebreak?: string}  $opts
+     * @param  array{blockedTiebreak?: string}  $opts
      */
     public static function computeRoundResult(
         RoundState $state,
@@ -508,7 +573,6 @@ final class GameEngine
         array $opts = [],
     ): RoundResult {
         $handTotals = array_map(fn (array $hand) => self::handPips($hand), $state->hands);
-        $capicua = (bool) ($opts['capicua'] ?? false);
 
         // ---- Domino (someone emptied their hand) ----
         if ($kind === 'domino' && $dominoer !== null) {
@@ -520,16 +584,11 @@ final class GameEngine
                         $pts += $handTotals[$p];
                     }
                 }
-                if ($capicua) {
-                    $pts += self::CAPICUA_BONUS;
-                }
 
                 return new RoundResultDomino(
                     winner: $dominoer,
                     points: $pts,
                     handTotals: $handTotals,
-                    capicua: $capicua,
-                    capicuaBonus: $capicua ? self::CAPICUA_BONUS : 0,
                     winningTeam: $winningTeam,
                 );
             }
@@ -540,16 +599,11 @@ final class GameEngine
                     $pts += $handTotals[$p];
                 }
             }
-            if ($capicua) {
-                $pts += self::CAPICUA_BONUS;
-            }
 
             return new RoundResultDomino(
                 winner: $dominoer,
                 points: $pts,
                 handTotals: $handTotals,
-                capicua: $capicua,
-                capicuaBonus: $capicua ? self::CAPICUA_BONUS : 0,
             );
         }
 
@@ -728,8 +782,17 @@ final class GameEngine
         $updated->matchWinner = $matchWinner;
         $updated->lastWinner = $lastWinner;
         $updated->roundsPlayed = $match->roundsPlayed + 1;
+        // finalHands: the tiles left in every hand when the round ended. They
+        // are public once the round is over, and the round-over card shows
+        // them beside each side's score.
         $updated->lastRoundResult = $match->round->roundResult !== null
-            ? array_merge($match->round->roundResult->toArray(), ['previousScores' => $match->scores])
+            ? array_merge($match->round->roundResult->toArray(), [
+                'previousScores' => $match->scores,
+                'finalHands' => array_map(
+                    fn (array $hand) => array_map(fn (Tile $t) => $t->toArray(), $hand),
+                    $match->round->hands
+                ),
+            ])
             : null;
 
         return $updated;

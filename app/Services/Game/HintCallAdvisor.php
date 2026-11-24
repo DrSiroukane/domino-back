@@ -85,7 +85,20 @@ final class HintCallAdvisor
     }
 
     /**
-     * Scores a legal move using the calls made so far this round. Higher is better; 0 = no information.
+     * The call a bot makes while passing: "close the game" when its hand is low.
+     */
+    public static function choosePassCall(MatchConfig $config, RoundState $state, int $player): ?HintCall
+    {
+        if (GameEngine::legalPassCalls($config, $state, $player) === []) {
+            return null;
+        }
+        $hand = $state->hands[$player];
+
+        return count($hand) >= 3 && GameEngine::handPips($hand) <= 6 ? HintCall::CloseGame : null;
+    }
+
+    /**
+     * Scores a legal move using the calls and passes so far this round. Higher is better; 0 = no information.
      */
     public static function scoreMove(RoundState $state, int $player, Tile $tile, string $side): int
     {
@@ -112,6 +125,13 @@ final class HintCallAdvisor
             }
         }
 
+        // Passes: whoever passed holds none of the numbers that were open then.
+        // Don't leave the partner stuck again; do leave the opponents stuck.
+        if ($n !== null) {
+            $other = $side === 'left' ? $state->rightEnd : ($side === 'right' ? $state->leftEnd : $n);
+            $score += self::passScore(GameEngine::passedNumbers($state), $player, $n, $other);
+        }
+
         // Answer the partner's "hug it": after the opponent plays one side of the opening double, play the other.
         $plays = array_values(array_filter($state->history, fn ($h) => $h->action === 'play'));
         if (count($plays) === 2
@@ -120,6 +140,27 @@ final class HintCallAdvisor
             && $plays[1]->player !== $player
             && $side !== $plays[1]->side) {
             $score += 4;
+        }
+
+        return $score;
+    }
+
+    /**
+     * How the open ends left by a move (`$n` new, `$other` untouched) suit the
+     * players who passed: -4 if the partner can follow neither end, -1 if not
+     * the new one; +2 per opponent stuck on both ends, +1 if only the new one.
+     *
+     * @param  array<int, list<int>>  $passed  GameEngine::passedNumbers()
+     */
+    public static function passScore(array $passed, int $player, int $n, ?int $other): int
+    {
+        $lacks = fn (int $p, ?int $x): bool => $x !== null && in_array($x, $passed[$p] ?? [], true);
+        $stuck = fn (int $p): bool => $lacks($p, $n) && ($other === null || $lacks($p, $other));
+
+        $partner = ($player + 2) % 4;
+        $score = $stuck($partner) ? -4 : ($lacks($partner, $n) ? -1 : 0);
+        foreach ([($player + 1) % 4, ($player + 3) % 4] as $opponent) {
+            $score += $stuck($opponent) ? 2 : ($lacks($opponent, $n) ? 1 : 0);
         }
 
         return $score;

@@ -562,12 +562,13 @@ class GameEngineTest extends TestCase
     }
 
     // ------------------------------------------------------------------ //
-    // capicúa
+    // no capicúa bonus (rule removed)
     // ------------------------------------------------------------------ //
 
-    public function test_play_tile_capicua_eligible_when_last_tile_fits_both_ends(): void
+    public function test_play_tile_last_tile_fitting_both_ends_awards_only_hand_pips(): void
     {
-        // Board ends are both 3; playing 3-5 fits both ends → capicuaEligible
+        // Board ends are both 3; the last tile 3-5 fits either end. This used
+        // to add a capicúa bonus — now only the opponent's pips count.
         $tile = new Tile(3, 5, 99);
         $round = clone $this->makeRound();
         $round->board = [new BoardEntryStart(new Tile(3, 3, 1), 3, 3)];
@@ -578,24 +579,8 @@ class GameEngineTest extends TestCase
         $result = GameEngine::playTile($round, 0, 99, 'left');
 
         $this->assertInstanceOf(RoundResultDomino::class, $result->roundResult);
-        $this->assertTrue($result->roundResult->capicua);
-        $this->assertSame(GameEngine::CAPICUA_BONUS, $result->roundResult->capicuaBonus);
-    }
-
-    public function test_play_tile_no_capicua_when_tile_fits_only_one_end(): void
-    {
-        $tile = new Tile(3, 5, 99);
-        $round = clone $this->makeRound();
-        $round->board = [new BoardEntryStart(new Tile(3, 4, 1), 3, 4)];
-        $round->leftEnd = 3;
-        $round->rightEnd = 4;
-        $round->hands = [[$tile], [new Tile(0, 1, 2)]];
-
-        $result = GameEngine::playTile($round, 0, 99, 'left');
-
-        $this->assertInstanceOf(RoundResultDomino::class, $result->roundResult);
-        $this->assertFalse($result->roundResult->capicua);
-        $this->assertSame(0, $result->roundResult->capicuaBonus);
+        $this->assertSame(1, $result->roundResult->points);
+        $this->assertArrayNotHasKey('capicua', $result->roundResult->toArray());
     }
 
     // ------------------------------------------------------------------ //
@@ -710,21 +695,6 @@ class GameEngineTest extends TestCase
         $this->assertInstanceOf(RoundResultDomino::class, $result);
         $this->assertSame(0, $result->winner);
         $this->assertSame(10, $result->points);
-        $this->assertFalse($result->capicua);
-    }
-
-    public function test_compute_round_result_domino_individual_capicua_adds_bonus(): void
-    {
-        $round = clone $this->makeRound(2);
-        $round->hands = [[], [new Tile(1, 2, 0)]]; // loser has 3 pips
-        $round->numPlayers = 2;
-        $round->teams = false;
-
-        $result = GameEngine::computeRoundResult($round, 0, 'domino', ['capicua' => true]);
-
-        $this->assertSame(3 + GameEngine::CAPICUA_BONUS, $result->points);
-        $this->assertTrue($result->capicua);
-        $this->assertSame(GameEngine::CAPICUA_BONUS, $result->capicuaBonus);
     }
 
     public function test_compute_round_result_domino_teams_sums_opposing_team(): void
@@ -869,6 +839,23 @@ class GameEngineTest extends TestCase
         $this->assertSame(0, $updated->lastWinner);
     }
 
+    public function test_apply_round_result_reports_the_final_hands(): void
+    {
+        $config = $this->makeConfig(2, false, 100);
+        $match = GameEngine::initMatch($config);
+        $match->round->hands = [[], [new Tile(1, 2, 3), new Tile(0, 4, 4)]];
+        $match->round->roundResult = new RoundResultDomino(winner: 0, points: 7, handTotals: [0, 7]);
+
+        $updated = GameEngine::applyRoundResult($match);
+
+        // Shown beside each side's score on the round-over card; public once the round is over.
+        $this->assertSame(
+            [[], [['a' => 1, 'b' => 2, 'id' => 3], ['a' => 0, 'b' => 4, 'id' => 4]]],
+            $updated->lastRoundResult['finalHands'],
+        );
+        $this->assertSame([0, 0], $updated->lastRoundResult['previousScores']);
+    }
+
     public function test_apply_round_result_match_over_when_target_reached(): void
     {
         $config = $this->makeConfig(2, false, 100);
@@ -975,15 +962,25 @@ class GameEngineTest extends TestCase
 
     public function test_round_result_domino_roundtrip(): void
     {
-        $r = new RoundResultDomino(2, 45, [0, 20, 25], true, 30, 1);
+        $r = new RoundResultDomino(2, 45, [0, 20, 25], winningTeam: 1);
         $arr = $r->toArray();
         $back = RoundResultDomino::fromArray($arr);
 
         $this->assertSame($r->winner, $back->winner);
         $this->assertSame($r->points, $back->points);
-        $this->assertSame($r->capicua, $back->capicua);
-        $this->assertSame($r->capicuaBonus, $back->capicuaBonus);
         $this->assertSame($r->winningTeam, $back->winningTeam);
+    }
+
+    public function test_round_result_domino_reads_legacy_capicua_fields(): void
+    {
+        // Matches saved before the capicúa rule was removed still load.
+        $back = RoundResultDomino::fromArray([
+            'kind' => 'domino', 'winner' => 0, 'points' => 42, 'handTotals' => [0, 12],
+            'capicua' => true, 'capicuaBonus' => 30, 'winningTeam' => 0,
+        ]);
+
+        $this->assertSame(42, $back->points);
+        $this->assertSame(0, $back->winningTeam);
     }
 
     public function test_round_result_blocked_roundtrip(): void

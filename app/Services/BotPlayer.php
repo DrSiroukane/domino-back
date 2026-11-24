@@ -82,8 +82,9 @@ final class BotPlayer
             return $match;
         }
 
-        // Pass (boneyard empty, no legal tile)
-        $newRound = GameEngine::passTurn($round, $playerIndex, ['blockedTiebreak' => $blockedTiebreak]);
+        // Pass (boneyard empty, no legal tile) — with "close the game" when the hand is low.
+        $passCall = HintCallAdvisor::choosePassCall($match->config, $round, $playerIndex);
+        $newRound = GameEngine::passTurn($round, $playerIndex, ['blockedTiebreak' => $blockedTiebreak], $passCall);
         $match->round = $newRound;
 
         if ($newRound->roundOver) {

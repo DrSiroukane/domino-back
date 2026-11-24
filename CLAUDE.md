@@ -14,7 +14,7 @@ This is the Laravel 13 backend for the Domino double-six multiplayer game. It pr
 
 ### 1. Game State Management
 - **Room Model**: Contains a JSON column `match_state` which holds the entire canonical state of the game (equivalent to `MatchState` in the frontend).
-- **Redaction**: The server MUST NEVER send the full `match_state` to a client. Before broadcasting, the state must be passed through a Redaction Service (`App\Services\Game\RedactorService`) that strips opponents' hands and returns a `ClientView`.
+- **Redaction**: The server MUST NEVER send the full `match_state` to a client. Before broadcasting, the state must be passed through a Redaction Service (`App\Services\Game\RedactorService`) that strips opponents' hands and returns a `ClientView`. (Exception by design: `lastRoundResult.finalHands` holds the *finished* round's leftover hands, which are public once that round is scored.)
 - **Validation**: Every incoming action from a player must be validated against the server's canonical `match_state` before applying it.
 
 ### 2. Real-Time Sync (Laravel Reverb)

@@ -7,6 +7,7 @@ namespace App\Actions\Game;
 use App\Exceptions\InvalidMoveException;
 use App\Models\Room;
 use App\Services\Game\Data\MatchState;
+use App\Services\Game\Enums\HintCall;
 use App\Services\Game\GameEngine;
 
 /**
@@ -17,10 +18,11 @@ use App\Services\Game\GameEngine;
  *  - It must be the player's turn.
  *  - The player must not be able to play any tile.
  *  - The boneyard must be empty (must draw before passing).
+ *  - A hint call, if any, must be allowed with a pass (only "close the game").
  */
 final class PassTurnAction
 {
-    public function execute(Room $room, int $playerIndex): MatchState
+    public function execute(Room $room, int $playerIndex, ?string $call = null): MatchState
     {
         $match = MatchState::fromArray($room->match_state);
 
@@ -46,8 +48,16 @@ final class PassTurnAction
             throw new InvalidMoveException('You must draw from the boneyard before passing.', 'must_draw');
         }
 
+        $hintCall = null;
+        if ($call !== null) {
+            $hintCall = HintCall::tryFrom($call);
+            if ($hintCall === null || ! in_array($hintCall, GameEngine::legalPassCalls($match->config, $round, $playerIndex), true)) {
+                throw new InvalidMoveException('That hint call is not allowed right now.', 'illegal_call');
+            }
+        }
+
         $blockedTiebreak = $match->config->blockedTiebreak->value;
-        $newRound = GameEngine::passTurn($round, $playerIndex, ['blockedTiebreak' => $blockedTiebreak]);
+        $newRound = GameEngine::passTurn($round, $playerIndex, ['blockedTiebreak' => $blockedTiebreak], $hintCall);
         $match->round = $newRound;
 
         if ($newRound->roundOver) {

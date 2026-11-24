@@ -9,8 +9,10 @@ use App\Enums\RoomStatus;
 use App\Exceptions\InvalidMoveException;
 use App\Models\Room;
 use App\Models\User;
+use App\Services\Game\Data\BoardEntryStart;
 use App\Services\Game\Data\MatchConfig;
 use App\Services\Game\Data\MatchState;
+use App\Services\Game\Data\Tile;
 use App\Services\Game\Enums\BlockedTiebreak;
 use App\Services\Game\Enums\Difficulty;
 use App\Services\Game\Enums\Opponents;
@@ -221,6 +223,56 @@ test('pass throws when player can play a tile', function () {
 
     expect(fn () => (new PassTurnAction)->execute($room, $starter))
         ->toThrow(InvalidMoveException::class, 'You cannot pass while you have a playable tile.');
+});
+
+/**
+ * A 4-player partnership room (hint calls on) where seat 0 must pass:
+ * 6-6 is down and seat 0 holds no 6.
+ */
+function makeRoomWhereSeatZeroMustPass(): Room
+{
+    $match = GameEngine::initMatch(new MatchConfig(
+        numPlayers: 4,
+        teams: true,
+        opponents: Opponents::Hotseat,
+        difficulty: Difficulty::Easy,
+        target: 100,
+        blockedTiebreak: BlockedTiebreak::Sum,
+        hintCalls: true,
+    ));
+    $round = $match->round;
+    $round->board = [new BoardEntryStart(new Tile(6, 6, 27), 6, 6)];
+    $round->leftEnd = 6;
+    $round->rightEnd = 6;
+    $round->hands[0] = [new Tile(0, 1, 1), new Tile(2, 3, 9), new Tile(4, 5, 22)];
+    $round->currentPlayer = 0;
+    $round->mandatoryFirstTile = null;
+    $round->passes = 0;
+    $match->round = $round;
+
+    return Room::create([
+        'status' => RoomStatus::Playing,
+        'max_players' => 4,
+        'settings' => ['hintCalls' => true],
+        'match_state' => $match->toArray(),
+    ]);
+}
+
+test('pass can carry a "close the game" call', function () {
+    $room = makeRoomWhereSeatZeroMustPass();
+
+    $match = (new PassTurnAction)->execute($room, 0, 'close_game');
+
+    $last = end($match->round->history);
+    expect($last->action)->toBe('pass')
+        ->and($last->call)->toBe('close_game');
+});
+
+test('pass rejects any other call', function () {
+    $room = makeRoomWhereSeatZeroMustPass();
+
+    expect(fn () => (new PassTurnAction)->execute($room, 0, 'good'))
+        ->toThrow(InvalidMoveException::class, 'That hint call is not allowed right now.');
 });
 
 // ------------------------------------------------------------------ //
