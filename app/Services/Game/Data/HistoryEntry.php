@@ -11,6 +11,8 @@ readonly class HistoryEntry
         public string $action,   // 'play' | 'pass' | 'draw'
         public ?Tile $tile = null,
         public ?string $side = null,  // 'left' | 'right' | 'start'
+        public ?string $call = null,  // HintCall value, when the player made a hint call with this play
+        public ?int $callNumber = null, // the open-end number the call refers to (null for close_game)
     ) {}
 
     public function toArray(): array
@@ -21,6 +23,10 @@ readonly class HistoryEntry
         }
         if ($this->side !== null) {
             $data['side'] = $this->side;
+        }
+        if ($this->call !== null) {
+            $data['call'] = $this->call;
+            $data['callNumber'] = $this->callNumber;
         }
 
         return $data;
@@ -33,6 +39,8 @@ readonly class HistoryEntry
             $data['action'],
             isset($data['tile']) ? Tile::fromArray($data['tile']) : null,
             $data['side'] ?? null,
+            $data['call'] ?? null,
+            isset($data['callNumber']) ? (int) $data['callNumber'] : null,
         );
     }
 }

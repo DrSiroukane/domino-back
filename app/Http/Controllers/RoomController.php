@@ -79,6 +79,7 @@ class RoomController extends Controller
             target: (int) ($s['target'] ?? 100),
             turnTimer: (int) ($s['turnTimer'] ?? 0),
             blockedTiebreak: BlockedTiebreak::from($s['blockedTiebreak'] ?? 'sum'),
+            hintCalls: (bool) ($s['hintCalls'] ?? false),
         );
 
         $match = GameEngine::initMatch($config);

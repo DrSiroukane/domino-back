@@ -18,7 +18,14 @@ readonly class MatchConfig
         public int $target,            // 100 | 150 | 200
         public int $turnTimer = 0,
         public BlockedTiebreak $blockedTiebreak = BlockedTiebreak::Sum,
+        public bool $hintCalls = false, // house rule: spoken hint calls (4-player teams only)
     ) {}
+
+    /** Hint calls are only meaningful in a 4-player partnership game. */
+    public function hintCallsActive(): bool
+    {
+        return $this->hintCalls && $this->numPlayers === 4 && $this->teams;
+    }
 
     public function toArray(): array
     {
@@ -30,6 +37,7 @@ readonly class MatchConfig
             'target' => $this->target,
             'turnTimer' => $this->turnTimer,
             'blockedTiebreak' => $this->blockedTiebreak->value,
+            'hintCalls' => $this->hintCalls,
         ];
     }
 
@@ -43,6 +51,7 @@ readonly class MatchConfig
             (int) $data['target'],
             (int) ($data['turnTimer'] ?? 0),
             BlockedTiebreak::from($data['blockedTiebreak'] ?? 'sum'),
+            (bool) ($data['hintCalls'] ?? false),
         );
     }
 }

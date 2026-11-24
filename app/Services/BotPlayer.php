@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Services\Game\Data\MatchState;
 use App\Services\Game\Data\RoundState;
 use App\Services\Game\GameEngine;
+use App\Services\Game\HintCallAdvisor;
 
 /**
  * Shared auto-play logic for bot-occupied seats.
@@ -29,12 +30,36 @@ final class BotPlayer
             $m = $round->mandatoryFirstTile;
             foreach ($hand as $tile) {
                 if ($tile->a === $m['a'] && $tile->b === $m['b']) {
+                    $call = HintCallAdvisor::chooseCall($match->config, $round, $playerIndex, $tile, 'start');
+
                     return self::commitPlay(
                         $match,
-                        GameEngine::playTile($round, $playerIndex, $tile->id, 'start'),
+                        GameEngine::playTile($round, $playerIndex, $tile->id, 'start', $call),
                     );
                 }
             }
+        }
+
+        // With hint calls on: pick the move the table's calls favour, and make a call with it.
+        if ($match->config->hintCallsActive() && GameEngine::canPlayAnyTile($round, $hand)) {
+            $best = null;
+            $bestScore = PHP_INT_MIN;
+            foreach ($hand as $tile) {
+                foreach (GameEngine::legalSidesForTile($round, $tile) as $side) {
+                    $score = HintCallAdvisor::scoreMove($round, $playerIndex, $tile, $side);
+                    if ($score > $bestScore) {
+                        $best = [$tile, $side];
+                        $bestScore = $score;
+                    }
+                }
+            }
+            [$tile, $side] = $best;
+            $call = HintCallAdvisor::chooseCall($match->config, $round, $playerIndex, $tile, $side);
+
+            return self::commitPlay(
+                $match,
+                GameEngine::playTile($round, $playerIndex, $tile->id, $side, $call),
+            );
         }
 
         // Play the first legal tile
