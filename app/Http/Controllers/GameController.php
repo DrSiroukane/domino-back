@@ -36,6 +36,7 @@ class GameController extends Controller
                 $playerIndex,
                 (int) $request->validated('tile_id'),
                 $request->validated('side'),
+                $request->validated('call'),
             );
         });
     }

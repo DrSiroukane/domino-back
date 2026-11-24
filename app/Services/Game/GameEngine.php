@@ -14,6 +14,7 @@ use App\Services\Game\Data\RoundResultBlocked;
 use App\Services\Game\Data\RoundResultDomino;
 use App\Services\Game\Data\RoundState;
 use App\Services\Game\Data\Tile;
+use App\Services\Game\Enums\HintCall;
 
 /**
  * Pure game-logic engine — PHP port of domino-front/lib/engine.ts.
@@ -300,6 +301,57 @@ final class GameEngine
     }
 
     // ------------------------------------------------------------------ //
+    // Hint calls (house rule, 4-player teams)
+    // ------------------------------------------------------------------ //
+
+    /**
+     * Which hint calls `$playerIdx` may make together with playing `$tile`.
+     * Validates timing only — a call is never checked against the hand,
+     * so bluffing is allowed. One call per play is implied by the API.
+     *
+     *  - Disabled unless the match has hint calls on with 4 players in teams.
+     *  - No call when the play leaves the player with one tile or none.
+     *  - Opening move: only "hug it", and only when the opening tile is a double.
+     *  - Any later play: one / good / dead / my head / close the game.
+     *
+     * @return list<HintCall>
+     */
+    public static function legalCalls(MatchConfig $config, RoundState $state, int $playerIdx, Tile $tile): array
+    {
+        if (! $config->hintCallsActive()) {
+            return [];
+        }
+
+        if (count($state->hands[$playerIdx] ?? []) - 1 <= 1) {
+            return [];
+        }
+
+        if (count($state->board) === 0) {
+            return self::isDouble($tile) ? [HintCall::HugIt] : [];
+        }
+
+        return [HintCall::One, HintCall::Good, HintCall::Dead, HintCall::MyHead, HintCall::CloseGame];
+    }
+
+    /**
+     * The number a call refers to: the open end left by placing `$tile` on `$side`.
+     * Null when the tile does not fit that side.
+     */
+    public static function exposedNumber(RoundState $state, Tile $tile, string $side): ?int
+    {
+        if (count($state->board) === 0) {
+            return self::isDouble($tile) ? $tile->a : null;
+        }
+
+        $matchEnd = $side === 'left' ? $state->leftEnd : $state->rightEnd;
+        if ($matchEnd === null || ! self::tileHas($tile, $matchEnd)) {
+            return null;
+        }
+
+        return $tile->a === $matchEnd ? $tile->b : $tile->a;
+    }
+
+    // ------------------------------------------------------------------ //
     // State transitions
     // ------------------------------------------------------------------ //
 
@@ -312,6 +364,7 @@ final class GameEngine
         int $playerIdx,
         int $tileId,
         string $side,   // 'left' | 'right' | 'start'
+        ?HintCall $call = null, // validated by the caller (see legalCalls)
     ): RoundState {
         // Build independent copies of the mutable arrays
         $newHands = array_map(fn (array $h) => array_values($h), $state->hands);
@@ -366,7 +419,10 @@ final class GameEngine
             $newRightEnd = $newExposed;
         }
 
-        $newHistory[] = new HistoryEntry($playerIdx, 'play', $tile, $side);
+        $callNumber = ($call !== null && $call->refersToNumber())
+            ? self::exposedNumber($state, $tile, $side)
+            : null;
+        $newHistory[] = new HistoryEntry($playerIdx, 'play', $tile, $side, $call?->value, $callNumber);
 
         $s = clone $state;
         $s->hands = $newHands;

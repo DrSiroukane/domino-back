@@ -7,6 +7,7 @@ namespace App\Actions\Game;
 use App\Exceptions\InvalidMoveException;
 use App\Models\Room;
 use App\Services\Game\Data\MatchState;
+use App\Services\Game\Enums\HintCall;
 use App\Services\Game\GameEngine;
 
 /**
@@ -18,10 +19,11 @@ use App\Services\Game\GameEngine;
  *  - The tile must exist in the player's hand.
  *  - If a mandatory first tile is set, it must be played.
  *  - The chosen side must be legally playable.
+ *  - A hint call, if any, must be allowed at this moment (timing only — bluffs are legal).
  */
 final class PlayTileAction
 {
-    public function execute(Room $room, int $playerIndex, int $tileId, string $side): MatchState
+    public function execute(Room $room, int $playerIndex, int $tileId, string $side, ?string $call = null): MatchState
     {
         $match = MatchState::fromArray($room->match_state);
 
@@ -68,7 +70,15 @@ final class PlayTileAction
             throw new InvalidMoveException('That side is not a legal play.', 'illegal_side');
         }
 
-        $newRound = GameEngine::playTile($round, $playerIndex, $tileId, $side);
+        $hintCall = null;
+        if ($call !== null) {
+            $hintCall = HintCall::tryFrom($call);
+            if ($hintCall === null || ! in_array($hintCall, GameEngine::legalCalls($match->config, $round, $playerIndex, $tile), true)) {
+                throw new InvalidMoveException('That hint call is not allowed right now.', 'illegal_call');
+            }
+        }
+
+        $newRound = GameEngine::playTile($round, $playerIndex, $tileId, $side, $hintCall);
         $match->round = $newRound;
 
         if ($newRound->roundOver) {
