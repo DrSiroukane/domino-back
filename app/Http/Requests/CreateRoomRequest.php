@@ -15,7 +15,7 @@ class CreateRoomRequest extends FormRequest
             'settings' => ['sometimes', 'array'],
             'settings.target' => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'settings.turnTimer' => ['sometimes', 'integer', 'min:0', 'max:300'],
-            'settings.blockedTiebreak' => ['sometimes', 'string', 'in:sum,last'],
+            'settings.blockedTiebreak' => ['sometimes', 'string', 'in:sum,low-player'],
             'settings.teams' => ['sometimes', 'boolean'],
             'settings.hintCalls' => ['sometimes', 'boolean'],
         ];
