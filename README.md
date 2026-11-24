@@ -84,7 +84,7 @@ All endpoints (except `/register`, `/login`, and `/health`) require a `Bearer` t
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/rooms/{room}/state` | Get the current redacted game state |
-| `POST` | `/api/rooms/{room}/play` | Play a tile |
+| `POST` | `/api/rooms/{room}/play` | Play a tile (`tile_id`, `side`, optional hint `call`) |
 | `POST` | `/api/rooms/{room}/draw` | Draw a tile from the boneyard |
 | `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw) |
 | `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot |
@@ -135,6 +135,10 @@ Client HTTP action → Controller → Action → GameEngine (validate + apply)
     → broadcast GameStateUpdated → Reverb → RedactorService per seat
     → each client receives only its own ClientView
 ```
+
+### Hint Calls (house rule)
+
+Rooms created with `settings.hintCalls: true` (4 players, teams) let a player attach one public hint call to a play: `hug_it` (opening double only), `one`, `good`, `dead`, `my_head`, `close_game`. `GameEngine::legalCalls` checks timing only (no call when the play leaves one tile), never truthfulness, so bluffing is allowed. Calls are stored on the play's history entry (`call`, `callNumber`) and reach every seat through the normal `ClientView`.
 
 ### Bot Players
 
