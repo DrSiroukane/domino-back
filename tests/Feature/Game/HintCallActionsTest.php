@@ -80,27 +80,22 @@ it('rejects any call when hint calls are off', function () {
 })->throws(InvalidMoveException::class);
 
 it('accepts a mid-game call without checking it against the hand (bluffs allowed)', function () {
-    $match = hintCallMatch();
-    [$seat, $tile] = openingMove($match);
-    $match->round = GameEngine::playTile($match->round, $seat, $tile->id, 'start');
-    $room = hintCallRoom($match);
-
-    $next = $match->round->currentPlayer;
-    $move = null;
-    foreach ($match->round->hands[$next] as $t) {
-        $sides = GameEngine::legalSidesForTile($match->round, $t);
-        if ($sides !== []) {
-            $move = [$t, $sides[0]];
-            break;
+    // Re-deal until the seat after the opener can follow the opening double.
+    for ($try = 0; $try < 200; $try++) {
+        $match = hintCallMatch();
+        [$seat, $tile] = openingMove($match);
+        $match->round = GameEngine::playTile($match->round, $seat, $tile->id, 'start');
+        $next = $match->round->currentPlayer;
+        foreach ($match->round->hands[$next] as $t) {
+            $sides = GameEngine::legalSidesForTile($match->round, $t);
+            if ($sides !== []) {
+                break 2;
+            }
         }
     }
 
-    if ($move === null) {
-        $this->markTestSkipped('Dealt hand cannot follow the opening double.');
-    }
-
     // "dead" is accepted whatever the hand really holds.
-    $after = (new PlayTileAction)->execute($room, $next, $move[0]->id, $move[1], 'dead');
+    $after = (new PlayTileAction)->execute(hintCallRoom($match), $next, $t->id, $sides[0], 'dead');
 
     expect(end($after->round->history)->call)->toBe('dead');
 });
