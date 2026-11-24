@@ -17,6 +17,9 @@ class RoomResource extends JsonResource
             'max_players' => $this->max_players,
             'player_count' => $this->players->count(),
             'settings' => $this->settings,
+            // The requesting user's seat, so the client can listen on its own seat channel only.
+            'my_seat' => ($seat = $this->players->firstWhere('id', $request->user()?->id)?->pivot?->seat) === null
+                ? null : (int) $seat,
             'created_at' => $this->created_at,
         ];
     }

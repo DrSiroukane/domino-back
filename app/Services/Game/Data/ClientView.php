@@ -49,6 +49,8 @@ readonly class ClientView
         public ?array $lastRoundResult = null,
         /** Display names for each seat, in seat order. */
         public array $seatNames = [],
+        /** User id for each seat, in seat order (match against presence-channel members). */
+        public array $seatUserIds = [],
     ) {}
 
     public function toArray(): array
@@ -80,6 +82,7 @@ readonly class ClientView
             'botSeats' => $this->botSeats,
             'lastRoundResult' => $this->lastRoundResult,
             'seatNames' => $this->seatNames,
+            'seatUserIds' => $this->seatUserIds,
         ];
     }
 }

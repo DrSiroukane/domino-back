@@ -77,7 +77,7 @@ All endpoints (except `/register`, `/login`, and `/health`) require a `Bearer` t
 | `GET` | `/api/rooms` | List available rooms |
 | `POST` | `/api/rooms` | Create a new room |
 | `POST` | `/api/rooms/{room}/join` | Join a room |
-| `POST` | `/api/rooms/{room}/leave` | Leave a room |
+| `POST` | `/api/rooms/{room}/leave` | Leave a room (waiting: frees the seat; playing: forfeit, a bot takes the seat) |
 
 ### Game Actions
 
@@ -87,7 +87,8 @@ All endpoints (except `/register`, `/login`, and `/health`) require a `Bearer` t
 | `POST` | `/api/rooms/{room}/play` | Play a tile (`tile_id`, `side`, optional hint `call`) |
 | `POST` | `/api/rooms/{room}/draw` | Draw a tile from the boneyard |
 | `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw) |
-| `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot |
+| `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot (seat must be absent from the presence channel) |
+| `POST` | `/api/rooms/{room}/reclaim` | Take your seat back from the bot |
 
 ### Chat
 
@@ -127,6 +128,13 @@ Authentication for private/presence channels goes through `/api/broadcasting/aut
 - `GameEngine` contains all validation and state-transition logic.
 - `RedactorService` strips opponent hands before any state is sent to a client, producing a `ClientView`.
 - Actions live in `App\Actions\Game` (`PlayTileAction`, `DrawTileAction`, `PassTurnAction`).
+
+### Seats, locking and timers
+
+- Each player's seat is stored in `room_players.seat` and never changes during a game. Leaving mid-game is a forfeit: the seat stays yours, a bot plays it, the match counts as a loss, and `reclaim` gives it back.
+- Every change to a room or its `match_state` runs inside `Room::withLock()` (transaction + row lock), so concurrent requests and the turn-timeout job are applied one at a time. Broadcasts go out after the commit (`GameBroadcaster`).
+- `TurnTimerService` arms the turn timer after every change that hands the turn to a human (moves, timeouts, substitution, reclaim, game start).
+- `PresenceService` asks Reverb who is in `presence-room.{id}` before a seat can be given to a bot.
 
 ### Real-time Flow
 
