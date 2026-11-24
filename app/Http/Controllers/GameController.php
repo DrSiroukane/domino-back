@@ -8,190 +8,224 @@ use App\Actions\Game\DrawTileAction;
 use App\Actions\Game\PassTurnAction;
 use App\Actions\Game\PlayTileAction;
 use App\Enums\RoomStatus;
-use App\Events\GameStateUpdated;
 use App\Exceptions\InvalidMoveException;
 use App\Http\Requests\PlayTileRequest;
-use App\Jobs\TurnTimeoutJob;
 use App\Models\Room;
 use App\Services\BotPlayer;
 use App\Services\Game\Data\MatchState;
-use App\Services\Game\RedactorService;
+use App\Services\GameBroadcaster;
 use App\Services\MatchFinalizerService;
+use App\Services\PresenceService;
+use App\Services\TurnTimerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class GameController extends Controller
 {
     public function __construct(
-        private readonly RedactorService $redactor,
+        private readonly GameBroadcaster $broadcaster,
         private readonly MatchFinalizerService $finalizer,
+        private readonly TurnTimerService $timer,
+        private readonly PresenceService $presence,
     ) {}
 
     public function play(PlayTileRequest $request, Room $room): JsonResponse
     {
-        return $this->handleMove($room, $request, function (int $playerIndex) use ($request, $room): MatchState {
-            return (new PlayTileAction)->execute(
-                $room,
-                $playerIndex,
-                (int) $request->validated('tile_id'),
-                $request->validated('side'),
-                $request->validated('call'),
-            );
-        });
+        return $this->handleMove($room, $request, fn (Room $locked, int $seat): MatchState => (new PlayTileAction)->execute(
+            $locked,
+            $seat,
+            (int) $request->validated('tile_id'),
+            $request->validated('side'),
+            $request->validated('call'),
+        ));
     }
 
     public function draw(Request $request, Room $room): JsonResponse
     {
-        return $this->handleMove($room, $request, function (int $playerIndex) use ($room): MatchState {
-            return (new DrawTileAction)->execute($room, $playerIndex);
-        });
+        return $this->handleMove($room, $request, fn (Room $locked, int $seat): MatchState => (new DrawTileAction)->execute($locked, $seat));
     }
 
     public function pass(Request $request, Room $room): JsonResponse
     {
-        return $this->handleMove($room, $request, function (int $playerIndex) use ($room): MatchState {
-            return (new PassTurnAction)->execute($room, $playerIndex);
-        });
+        return $this->handleMove($room, $request, fn (Room $locked, int $seat): MatchState => (new PassTurnAction)->execute($locked, $seat));
     }
 
-    /** Returns the current redacted state for the authenticated player (used for reconnection). */
+    /**
+     * Current redacted state for the authenticated player (used for reconnection).
+     * Also served for finished rooms so a returning player sees the final result.
+     */
     public function state(Request $request, Room $room): JsonResponse
     {
-        if ($room->status !== RoomStatus::Playing) {
+        if ($room->status === RoomStatus::Waiting || $room->match_state === null) {
             return response()->json(['message' => 'Game is not in progress.'], 422);
         }
 
-        $playerIndex = $room->getPlayerIndex($request->user());
-        if ($playerIndex === null) {
+        $seat = $room->getPlayerIndex($request->user());
+        if ($seat === null) {
             return response()->json(['message' => 'You are not seated in this room.'], 403);
         }
 
-        $match = MatchState::fromArray($room->match_state);
-        $view = $this->redactor->redact($match, $playerIndex, seatNames: $room->getSeatNames());
+        $view = $this->broadcaster->view($room, MatchState::fromArray($room->match_state), $seat);
 
         return response()->json($view->toArray());
     }
 
     /**
-     * Substitutes a disconnected player with a bot at the given seat index.
-     * Any seated human player may request this after an opponent has been absent.
+     * Gives a seat back to its human player after a bot took it over
+     * (disconnect substitution or leaving mid-game).
+     */
+    public function reclaim(Request $request, Room $room): JsonResponse
+    {
+        $result = Room::withLock($room->id, function (Room $room) use ($request) {
+            if ($room->status !== RoomStatus::Playing) {
+                return response()->json(['message' => 'Game is not in progress.'], 422);
+            }
+
+            $seat = $room->getPlayerIndex($request->user());
+            if ($seat === null) {
+                return response()->json(['message' => 'You are not seated in this room.'], 403);
+            }
+
+            $match = MatchState::fromArray($room->match_state);
+            if (! in_array($seat, $match->botSeats, true)) {
+                return [$room, $match, $seat];
+            }
+
+            $match->botSeats = array_values(array_diff($match->botSeats, [$seat]));
+            $match->forfeitedSeats = array_values(array_diff($match->forfeitedSeats, [$seat]));
+            $match = $this->timer->arm($match);
+            $room->update(['match_state' => $match->toArray()]);
+            $this->timer->dispatch($room->id, $match);
+
+            return [$room, $match, $seat];
+        });
+
+        if ($result instanceof JsonResponse) {
+            return $result;
+        }
+
+        [$room, $match, $seat] = $result;
+        $this->broadcaster->broadcastAll($room, $match);
+
+        return response()->json($this->broadcaster->view($room, $match, $seat)->toArray());
+    }
+
+    /**
+     * Substitutes a disconnected player with a bot at the given seat.
+     * Any seated player may request it, but only for a seat whose player is
+     * not connected to the room's presence channel.
      */
     public function substituteBot(Request $request, Room $room, int $seatIndex): JsonResponse
     {
-        if ($room->status !== RoomStatus::Playing) {
-            return response()->json(['message' => 'Game is not in progress.'], 422);
+        $result = Room::withLock($room->id, function (Room $room) use ($request, $seatIndex) {
+            if ($room->status !== RoomStatus::Playing) {
+                return response()->json(['message' => 'Game is not in progress.'], 422);
+            }
+
+            $requester = $room->getPlayerIndex($request->user());
+            if ($requester === null) {
+                return response()->json(['message' => 'You are not seated in this room.'], 403);
+            }
+
+            $match = MatchState::fromArray($room->match_state);
+
+            if ($seatIndex < 0 || $seatIndex >= $match->config->numPlayers) {
+                return response()->json(['message' => 'No such seat.'], 422);
+            }
+            if ($requester === $seatIndex) {
+                return response()->json(['message' => 'Cannot substitute yourself.'], 422);
+            }
+            if ($match->matchOver) {
+                return response()->json(['message' => 'Match is already over.'], 422);
+            }
+            if (in_array($seatIndex, $match->botSeats, true)) {
+                return response()->json(['message' => 'Seat is already a bot.'], 422);
+            }
+
+            $connected = $this->presence->connectedUserIds($room->id);
+            if ($connected === null) {
+                return response()->json(['message' => 'Cannot check who is connected right now. Try again.'], 503);
+            }
+            $targetUserId = $room->getSeatUserIds()[$seatIndex] ?? null;
+            if ($targetUserId !== null && in_array($targetUserId, $connected, true)) {
+                return response()->json(['message' => 'That player is still connected.'], 422);
+            }
+
+            $match->botSeats = array_values(array_unique([...$match->botSeats, $seatIndex]));
+
+            return $this->settle($room, $match);
+        });
+
+        if ($result instanceof JsonResponse) {
+            return $result;
         }
 
-        $requestingPlayer = $room->getPlayerIndex($request->user());
-        if ($requestingPlayer === null) {
-            return response()->json(['message' => 'You are not seated in this room.'], 403);
-        }
-
-        if ($requestingPlayer === $seatIndex) {
-            return response()->json(['message' => 'Cannot substitute yourself.'], 422);
-        }
-
-        $match = MatchState::fromArray($room->match_state);
-
-        if ($match->matchOver) {
-            return response()->json(['message' => 'Match is already over.'], 422);
-        }
-
-        if (in_array($seatIndex, $match->botSeats, true)) {
-            return response()->json(['message' => 'Seat is already a bot.'], 422);
-        }
-
-        // Mark the seat as a bot and immediately auto-play if it is that bot's turn
-        $match->botSeats = array_values(array_unique([...$match->botSeats, $seatIndex]));
-        $match = BotPlayer::autoPlayBots($match);
-
-        $eloDeltas = [];
-        if ($match->matchOver) {
-            $eloDeltas = $this->finalizer->finalize($room, $match);
-        } else {
-            $room->update(['match_state' => $match->toArray()]);
-        }
-
-        $this->broadcastAll($room, $match, $eloDeltas);
+        [$room, $match, $eloDeltas] = $result;
+        $this->broadcaster->broadcastAll($room, $match, $eloDeltas);
 
         return response()->json(['ok' => true]);
     }
 
     // ------------------------------------------------------------------ //
 
+    /**
+     * Runs a player's move under the room lock, lets bots answer, finalizes or
+     * re-arms the turn timer, then broadcasts after the commit.
+     *
+     * @param  callable(Room, int): MatchState  $action
+     */
     private function handleMove(Room $room, Request $request, callable $action): JsonResponse
     {
-        if ($room->status !== RoomStatus::Playing) {
-            return response()->json(['message' => 'Game is not in progress.'], 422);
+        $result = Room::withLock($room->id, function (Room $room) use ($request, $action) {
+            if ($room->status !== RoomStatus::Playing) {
+                return response()->json(['message' => 'Game is not in progress.'], 422);
+            }
+
+            $seat = $room->getPlayerIndex($request->user());
+            if ($seat === null) {
+                return response()->json(['message' => 'You are not seated in this room.'], 403);
+            }
+
+            try {
+                $match = $action($room, $seat);
+            } catch (InvalidMoveException $e) {
+                return response()->json(['message' => $e->getMessage(), 'code' => $e->errorCode], 422);
+            }
+
+            return [...$this->settle($room, $match), $seat];
+        });
+
+        if ($result instanceof JsonResponse) {
+            return $result;
         }
 
-        $playerIndex = $room->getPlayerIndex($request->user());
-        if ($playerIndex === null) {
-            return response()->json(['message' => 'You are not seated in this room.'], 403);
-        }
+        [$room, $match, $eloDeltas, $seat] = $result;
+        $this->broadcaster->broadcastAll($room, $match, $eloDeltas);
 
-        try {
-            $match = $action($playerIndex);
-        } catch (InvalidMoveException $e) {
-            return response()->json(['message' => $e->getMessage(), 'code' => $e->errorCode], 422);
-        }
-
-        // Auto-play any bot-occupied seats after the human move
-        if (! empty($match->botSeats) && ! $match->matchOver) {
-            $match = BotPlayer::autoPlayBots($match);
-            $room->update(['match_state' => $match->toArray()]);
-        }
-
-        // Finalize match stats when the game just ended
-        $eloDeltas = [];
-        if ($match->matchOver) {
-            $eloDeltas = $this->finalizer->finalize($room, $match);
-        }
-
-        // Schedule authoritative turn timeout when a timer is configured
-        $this->scheduleTimeout($room, $match);
-
-        $this->broadcastAll($room, $match, $eloDeltas);
-
-        $view = $this->redactor->redact($match, $playerIndex, $eloDeltas, $room->getSeatNames());
-
-        return response()->json($view->toArray());
-    }
-
-    /** Fires a per-player GameStateUpdated event for every seat. */
-    private function broadcastAll(Room $room, MatchState $match, array $eloDeltas = []): void
-    {
-        $seatNames = $room->getSeatNames();
-        for ($i = 0; $i < count($match->round->hands); $i++) {
-            $view = $this->redactor->redact($match, $i, $eloDeltas, $seatNames);
-            event(new GameStateUpdated($room->id, $view));
-        }
+        return response()->json($this->broadcaster->view($room, $match, $seat, $eloDeltas)->toArray());
     }
 
     /**
-     * Generates a fresh turn token, saves it to the room, and dispatches a
-     * delayed TurnTimeoutJob when a turn timer is configured and the game is live.
+     * After a state change (inside the lock): bots play their turns, then the
+     * match is finalized or the next turn timer is armed, and the state is saved.
+     *
+     * @return array{0: Room, 1: MatchState, 2: array<int, array{delta: int, newElo: int}>}
      */
-    private function scheduleTimeout(Room $room, MatchState $match): void
+    private function settle(Room $room, MatchState $match): array
     {
-        $timerSeconds = $match->config->turnTimer;
+        $match = BotPlayer::autoPlayBots($match);
 
-        if ($timerSeconds <= 0 || $match->matchOver || $match->round->roundOver) {
-            return;
+        if ($match->matchOver) {
+            $match->turnToken = null;
+            $match->turnExpiresAt = null;
+
+            return [$room, $match, $this->finalizer->finalize($room, $match)];
         }
 
-        // No timeout needed when it is a bot's turn
-        if (in_array($match->round->currentPlayer, $match->botSeats, true)) {
-            return;
-        }
-
-        $match->turnToken = Str::uuid()->toString();
-        $match->turnExpiresAt = now()->timestamp + $timerSeconds;
-
+        $match = $this->timer->arm($match);
         $room->update(['match_state' => $match->toArray()]);
+        $this->timer->dispatch($room->id, $match);
 
-        TurnTimeoutJob::dispatch($room->id, $match->round->currentPlayer, $match->turnToken)
-            ->delay($timerSeconds);
+        return [$room, $match, []];
     }
 }

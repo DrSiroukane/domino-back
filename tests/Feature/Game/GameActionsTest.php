@@ -235,7 +235,7 @@ test('POST /rooms/{room}/play returns 422 when room is not playing', function ()
         'settings' => [],
         'match_state' => null,
     ]);
-    $room->players()->attach($user->id);
+    $room->seatPlayer($user);
 
     $response = $this->actingAs($user)
         ->postJson("/api/rooms/{$room->id}/play", ['tile_id' => 0, 'side' => 'start']);
@@ -258,7 +258,7 @@ test('POST /rooms/{room}/play returns client view on success', function () {
     $room = makeRoom();
 
     // Attach user as seat 0 (first attached player)
-    $room->players()->attach($user->id);
+    $room->seatPlayer($user);
 
     $match = MatchState::fromArray($room->match_state);
     $starter = $match->round->currentPlayer;
