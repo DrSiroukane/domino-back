@@ -6,7 +6,10 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class CreateRoomRequest extends FormRequest
+/**
+ * Input for creating a room: player count and match settings.
+ */
+final class CreateRoomRequest extends FormRequest
 {
     public function rules(): array
     {

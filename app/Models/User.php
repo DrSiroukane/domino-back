@@ -12,9 +12,12 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
+/**
+ * A player account: credentials, rating (ELO) and win/loss record.
+ */
 #[Fillable(['name', 'email', 'password', 'avatar_url', 'stats', 'elo', 'wins', 'losses'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+final class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;

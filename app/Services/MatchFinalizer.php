@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\DB;
  * Call it while holding the room lock (Room::withLock) so two requests that
  * both end the match cannot finalize it twice.
  */
-final class MatchFinalizerService
+final class MatchFinalizer
 {
     private const K_FACTOR = 32;
 

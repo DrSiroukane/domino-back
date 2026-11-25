@@ -14,7 +14,7 @@ use Throwable;
  * to a room's presence channel. Used to make sure a seat is really empty
  * before it can be handed to a bot.
  */
-class PresenceService
+class PresenceChecker
 {
     /**
      * User ids connected to `room.{roomId}`, or null when the WebSocket server
@@ -37,7 +37,7 @@ class PresenceService
                 (array) ($response->users ?? []),
             ));
         } catch (Throwable $e) {
-            Log::warning('PresenceService: could not query presence channel', [
+            Log::warning('PresenceChecker: could not query presence channel', [
                 'room_id' => $roomId,
                 'error' => $e->getMessage(),
             ]);

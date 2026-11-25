@@ -61,46 +61,56 @@ composer dev
 
 All endpoints (except `/register`, `/login`, and `/health`) require a `Bearer` token via Laravel Sanctum.
 
+**Responses.** Resources come wrapped in `data` (`{"data": {...}}`); move
+endpoints return the player's redacted `ClientView` at the top level; endpoints
+with nothing to return answer `204 No Content`.
+
+**Errors** are `{"message": "…", "code": "snake_case_reason"}` — `message` for
+people, `code` for the client (e.g. `not_your_turn`, `not_seated`,
+`game_not_in_progress`, `room_full`, `not_found`, `unauthenticated`,
+`too_many_requests`).
+Validation errors keep Laravel's `{"message", "errors"}` shape.
+
 ### Auth
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/register` | Register a new user |
-| `POST` | `/api/login` | Obtain a Sanctum token |
-| `POST` | `/api/logout` | Revoke current token |
-| `GET` | `/api/user` | Get authenticated user |
+| `POST` | `/api/register` | Register a new user → `201 {user, token}` |
+| `POST` | `/api/login` | Obtain a Sanctum token → `{user, token}` |
+| `POST` | `/api/logout` | Revoke current token → `204` |
+| `GET` | `/api/user` | Get authenticated user → `{data: user}` |
 
 ### Rooms
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/rooms` | List available rooms |
-| `POST` | `/api/rooms` | Create a new room |
-| `POST` | `/api/rooms/{room}/join` | Join a room |
-| `POST` | `/api/rooms/{room}/leave` | Leave a room (waiting: frees the seat; playing: forfeit, a bot takes the seat) |
+| `GET` | `/api/rooms` | List available rooms → `{data: [room]}` |
+| `POST` | `/api/rooms` | Create a new room → `201 {data: room}` |
+| `POST` | `/api/rooms/{room}/join` | Join a room → `{data: room}` |
+| `POST` | `/api/rooms/{room}/leave` | Leave a room (waiting: frees the seat; playing: forfeit, a bot takes the seat) → `204` |
 
 ### Game Actions
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/rooms/{room}/state` | Get the current redacted game state |
-| `POST` | `/api/rooms/{room}/play` | Play a tile (`tile_id`, `side`, optional hint `call`) |
-| `POST` | `/api/rooms/{room}/draw` | Draw a tile from the boneyard |
-| `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw); optional hint `call`: only `close_game` |
-| `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot (seat must be absent from the presence channel) |
-| `POST` | `/api/rooms/{room}/reclaim` | Take your seat back from the bot |
+| `GET` | `/api/rooms/{room}/state` | Get the current redacted game state → `ClientView` |
+| `POST` | `/api/rooms/{room}/play` | Play a tile (`tile_id`, `side`, optional hint `call`) → `ClientView` |
+| `POST` | `/api/rooms/{room}/draw` | Draw a tile from the boneyard → `ClientView` |
+| `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw); optional hint `call`: only `close_game` → `ClientView` |
+| `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot (seat must be absent from the presence channel) → `204` |
+| `POST` | `/api/rooms/{room}/reclaim` | Take your seat back from the bot → `ClientView` |
 
 ### Chat
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/rooms/{room}/chat` | Send a chat message in a room |
+| `POST` | `/api/rooms/{room}/chat` | Send a chat message in a room → `204` |
 
 ### Health
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/health` | Database connectivity check |
+| `GET` | `/api/health` | Database connectivity check → `204`, or `503` when the database is down |
 
 ---
 
@@ -126,21 +136,23 @@ Authentication for private/presence channels goes through `/api/broadcasting/aut
 
 - The `Room` model holds a JSON `match_state` column that is the single source of truth for the entire game state.
 - `GameEngine` contains all validation and state-transition logic.
-- `RedactorService` strips opponent hands before any state is sent to a client, producing a `ClientView`.
+- `Redactor` strips opponent hands before any state is sent to a client, producing a `ClientView`.
 - Actions live in `App\Actions\Game` (`PlayTileAction`, `DrawTileAction`, `PassTurnAction`).
 
 ### Seats, locking and timers
 
 - Each player's seat is stored in `room_players.seat` and never changes during a game. Leaving mid-game is a forfeit: the seat stays yours, a bot plays it, the match counts as a loss, and `reclaim` gives it back.
 - Every change to a room or its `match_state` runs inside `Room::withLock()` (transaction + row lock), so concurrent requests and the turn-timeout job are applied one at a time. Broadcasts go out after the commit (`GameBroadcaster`).
-- `TurnTimerService` arms the turn timer after every change that hands the turn to a human (moves, timeouts, substitution, reclaim, game start).
-- `PresenceService` asks Reverb who is in `presence-room.{id}` before a seat can be given to a bot.
+- `MatchSettler` ends every state change the same way: bots play their turns, then the match is finalized (`MatchFinalizer`), or the next turn timer is armed and the state saved.
+- `TurnTimer` arms the turn timer after every change that hands the turn to a human (moves, timeouts, substitution, reclaim, game start).
+- `PresenceChecker` asks Reverb who is in `presence-room.{roomId}` before a seat can be given to a bot.
 
 ### Real-time Flow
 
 ```
 Client HTTP action → Controller → Action → GameEngine (validate + apply)
-    → broadcast GameStateUpdated → Reverb → RedactorService per seat
+    → MatchSettler (bots, timer or finalize) → commit
+    → broadcast GameStateUpdated → Reverb → Redactor per seat
     → each client receives only its own ClientView
 ```
 

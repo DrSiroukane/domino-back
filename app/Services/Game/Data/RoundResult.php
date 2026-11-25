@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
+/**
+ * How a round ended: a domino or a blocked game.
+ */
 interface RoundResult
 {
     public function getKind(): string;

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Enums;
 
+/**
+ * Bot strength.
+ */
 enum Difficulty: string
 {
     case Easy = 'easy';

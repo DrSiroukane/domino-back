@@ -6,29 +6,29 @@ namespace App\Http\Controllers;
 
 use App\Enums\RoomStatus;
 use App\Events\ChatMessageSent;
+use App\Exceptions\ApiException;
 use App\Models\Room;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 
-class ChatController extends Controller
+/**
+ * In-game chat: a seated player's message, broadcast to the table.
+ */
+final class ChatController extends Controller
 {
-    public function store(Request $request, Room $room): JsonResponse
+    public function store(Request $request, Room $room): Response
     {
         if ($room->status !== RoomStatus::Playing) {
-            return response()->json(['message' => 'Game is not in progress.'], 422);
+            throw new ApiException('The game is not in progress.', 'game_not_in_progress');
         }
 
         $playerIndex = $room->getPlayerIndex($request->user());
         if ($playerIndex === null) {
-            return response()->json(['message' => 'You are not seated in this room.'], 403);
+            throw new ApiException('You are not seated in this room.', 'not_seated', 403);
         }
 
-        $validated = $request->validate(['message' => 'required|string|max:200']);
-        $message = trim($validated['message']);
-
-        if ($message === '') {
-            return response()->json(['message' => 'Message cannot be empty.'], 422);
-        }
+        // TrimStrings has already trimmed it, so a blank message fails `required`.
+        $message = $request->validate(['message' => ['required', 'string', 'max:200']])['message'];
 
         event(new ChatMessageSent(
             roomId: $room->id,
@@ -38,6 +38,6 @@ class ChatController extends Controller
             sentAt: now()->timestamp,
         ));
 
-        return response()->json(['ok' => true]);
+        return response()->noContent();
     }
 }

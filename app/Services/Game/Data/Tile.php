@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-readonly class Tile
+/**
+ * A domino: its id (0–27) and its two numbers.
+ */
+final readonly class Tile
 {
     public function __construct(
         public int $a,

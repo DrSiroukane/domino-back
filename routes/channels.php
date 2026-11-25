@@ -1,21 +1,17 @@
 <?php
 
+declare(strict_types=1);
+
 use App\Models\Room;
 use App\Models\User;
 use Illuminate\Support\Facades\Broadcast;
 
-Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
-    return (int) $user->id === (int) $id;
-});
+Broadcast::channel('App.Models.User.{id}', fn (User $user, int $id): bool => $user->id === $id);
 
-Broadcast::channel('room.{id}', function ($user, $id) {
-    $room = Room::find($id);
-
-    if (! $room) {
-        return false;
-    }
-
-    if (! $room->players()->where('user_id', $user->id)->exists()) {
+// Presence channel for a table: only its players join; members are known by id and name.
+Broadcast::channel('room.{roomId}', function (User $user, int $roomId): array|false {
+    $room = Room::find($roomId);
+    if ($room === null || $room->getPlayerIndex($user) === null) {
         return false;
     }
 
@@ -24,12 +20,8 @@ Broadcast::channel('room.{id}', function ($user, $id) {
 
 // Per-seat private channel for redacted game state payloads.
 // Only the player occupying that seat may subscribe.
-Broadcast::channel('room.{roomId}.seat.{seatIndex}', function (User $user, int $roomId, int $seatIndex) {
+Broadcast::channel('room.{roomId}.seat.{seatIndex}', function (User $user, int $roomId, int $seatIndex): bool {
     $room = Room::find($roomId);
 
-    if (! $room) {
-        return false;
-    }
-
-    return $room->getPlayerIndex($user) === $seatIndex;
+    return $room !== null && $room->getPlayerIndex($user) === $seatIndex;
 });

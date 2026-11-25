@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-readonly class BoardEntryStart implements BoardEntry
+/**
+ * The opening tile of the round and its two open ends.
+ */
+final readonly class BoardEntryStart implements BoardEntry
 {
     public function __construct(
         public Tile $tile,

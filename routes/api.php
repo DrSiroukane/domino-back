@@ -3,19 +3,26 @@
 declare(strict_types=1);
 
 use App\Events\TestBroadcast;
+use App\Exceptions\ApiException;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\RoomController;
+use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
+// Answers 204 when the app can reach its database, 503 when it can't.
 Route::get('/health', function () {
-    DB::connection()->getPdo();
+    try {
+        DB::connection()->getPdo();
+    } catch (Throwable) {
+        throw new ApiException('The database cannot be reached.', 'database_unavailable', 503);
+    }
 
-    return response()->json(['status' => 'ok']);
+    return response()->noContent();
 });
 
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
@@ -28,7 +35,7 @@ Route::post('/broadcasting/auth', function (Request $request) {
 
 Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('/user', fn (Request $request) => $request->user());
+    Route::get('/user', fn (Request $request) => new UserResource($request->user()));
 
     Route::get('/rooms', [RoomController::class, 'index']);
     Route::post('/rooms', [RoomController::class, 'store']);
@@ -54,6 +61,6 @@ if (app()->isLocal()) {
     Route::post('/test-broadcast', function (Request $request) {
         event(new TestBroadcast($request->string('message', 'Hello from Reverb!')->toString()));
 
-        return response()->json(['ok' => true]);
+        return response()->noContent();
     });
 }

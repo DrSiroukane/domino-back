@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-class MatchState
+/**
+ * The whole match: config, current round, scores and seat status. Mutable on
+ * purpose: the engine and the actions update it in place, then save it.
+ */
+final class MatchState
 {
-    /**
-     * @param  int[]  $scores
-     */
     /**
      * @param  int[]  $scores
      * @param  int[]  $botSeats  Seat indices occupied by AI bots (substituted for disconnected players)

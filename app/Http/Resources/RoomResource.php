@@ -7,7 +7,10 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-class RoomResource extends JsonResource
+/**
+ * A room as the lobby and the table see it, with the caller's own seat.
+ */
+final class RoomResource extends JsonResource
 {
     public function toArray(Request $request): array
     {

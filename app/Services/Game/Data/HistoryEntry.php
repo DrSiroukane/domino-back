@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-readonly class HistoryEntry
+/**
+ * One action in a round: a play, a pass or a draw, with any hint call made with it.
+ */
+final readonly class HistoryEntry
 {
     public function __construct(
         public int $player,

@@ -91,7 +91,7 @@ function makeRoomAfterFirstPlay(): array
 // PlayTileAction
 // ------------------------------------------------------------------ //
 
-test('play tile succeeds when it is the player turn and side is legal', function () {
+it('plays a tile on the player\'s turn when the side is legal', function () {
     $room = makeRoom();
     $match = MatchState::fromArray($room->match_state);
 
@@ -117,7 +117,7 @@ test('play tile succeeds when it is the player turn and side is legal', function
     expect($room->match_state['round']['board'])->toHaveCount(1);
 });
 
-test('play tile throws when it is not the player turn', function () {
+it('rejects a play out of turn', function () {
     $room = makeRoom();
     $match = MatchState::fromArray($room->match_state);
 
@@ -128,7 +128,7 @@ test('play tile throws when it is not the player turn', function () {
         ->toThrow(InvalidMoveException::class, 'It is not your turn.');
 });
 
-test('play tile throws when tile is not in hand', function () {
+it('rejects a play with a tile that is not in hand', function () {
     $room = makeRoom();
     $match = MatchState::fromArray($room->match_state);
 
@@ -139,7 +139,7 @@ test('play tile throws when tile is not in hand', function () {
         ->toThrow(InvalidMoveException::class, 'Tile not found in your hand.');
 });
 
-test('play tile throws when side is illegal', function () {
+it('rejects a play on an illegal side', function () {
     // After the first tile is played the board is non-empty and mandatoryFirstTile is null.
     // Find a tile in the current player's hand that does NOT match either open end.
     ['room' => $room, 'match' => $match, 'currentPlayer' => $currentPlayer] = makeRoomAfterFirstPlay();
@@ -172,7 +172,7 @@ test('play tile throws when side is illegal', function () {
 // DrawTileAction
 // ------------------------------------------------------------------ //
 
-test('draw tile throws when player can play a tile', function () {
+it('rejects a draw when the player can play a tile', function () {
     $room = makeRoom();
     $match = MatchState::fromArray($room->match_state);
 
@@ -183,7 +183,7 @@ test('draw tile throws when player can play a tile', function () {
         ->toThrow(InvalidMoveException::class, 'You must play a tile before drawing.');
 });
 
-test('draw tile throws when boneyard is empty and player cannot play', function () {
+it('rejects a draw when the boneyard is empty', function () {
     ['room' => $room, 'match' => $match, 'currentPlayer' => $currentPlayer] = makeRoomAfterFirstPlay();
 
     $reload = MatchState::fromArray($room->match_state);
@@ -216,7 +216,7 @@ test('draw tile throws when boneyard is empty and player cannot play', function 
 // PassTurnAction
 // ------------------------------------------------------------------ //
 
-test('pass throws when player can play a tile', function () {
+it('rejects a pass when the player can play a tile', function () {
     $room = makeRoom();
     $match = MatchState::fromArray($room->match_state);
     $starter = $match->round->currentPlayer;
@@ -258,7 +258,7 @@ function makeRoomWhereSeatZeroMustPass(): Room
     ]);
 }
 
-test('pass can carry a "close the game" call', function () {
+it('lets a pass carry a "close the game" call', function () {
     $room = makeRoomWhereSeatZeroMustPass();
 
     $match = (new PassTurnAction)->execute($room, 0, 'close_game');
@@ -268,7 +268,7 @@ test('pass can carry a "close the game" call', function () {
         ->and($last->call)->toBe('close_game');
 });
 
-test('pass rejects any other call', function () {
+it('rejects any other call with a pass', function () {
     $room = makeRoomWhereSeatZeroMustPass();
 
     expect(fn () => (new PassTurnAction)->execute($room, 0, 'good'))
@@ -279,7 +279,7 @@ test('pass rejects any other call', function () {
 // GameController HTTP layer
 // ------------------------------------------------------------------ //
 
-test('POST /rooms/{room}/play returns 422 when room is not playing', function () {
+it('rejects a play when the room is not playing', function () {
     $user = User::factory()->create();
     $room = Room::create([
         'status' => RoomStatus::Waiting,
@@ -292,20 +292,20 @@ test('POST /rooms/{room}/play returns 422 when room is not playing', function ()
     $response = $this->actingAs($user)
         ->postJson("/api/rooms/{$room->id}/play", ['tile_id' => 0, 'side' => 'start']);
 
-    $response->assertStatus(422)->assertJson(['message' => 'Game is not in progress.']);
+    $response->assertStatus(422)->assertJson(['message' => 'The game is not in progress.', 'code' => 'game_not_in_progress']);
 });
 
-test('POST /rooms/{room}/play returns 403 when user is not seated', function () {
+it('rejects a play from someone not seated', function () {
     $user = User::factory()->create();
     $room = makeRoom();
 
     $response = $this->actingAs($user)
         ->postJson("/api/rooms/{$room->id}/play", ['tile_id' => 0, 'side' => 'start']);
 
-    $response->assertStatus(403);
+    $response->assertStatus(403)->assertJson(['message' => 'You are not seated in this room.', 'code' => 'not_seated']);
 });
 
-test('POST /rooms/{room}/play returns client view on success', function () {
+it('returns the client view after a successful play', function () {
     $user = User::factory()->create();
     $room = makeRoom();
 

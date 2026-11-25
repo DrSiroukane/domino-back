@@ -5,14 +5,19 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\RoomStatus;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
-class Room extends Model
+/**
+ * A table: its seats (players), settings, status and the canonical match state.
+ */
+#[Fillable(['status', 'max_players', 'settings', 'match_state'])]
+final class Room extends Model
 {
-    protected $fillable = ['status', 'max_players', 'settings', 'match_state'];
-
     protected function casts(): array
     {
         return [
@@ -68,15 +73,19 @@ class Room extends Model
     {
         $seat = $this->nextFreeSeat();
         if ($seat === null) {
-            throw new \RuntimeException('Room is full.');
+            throw new RuntimeException('Room is full.');
         }
         $this->players()->attach($user->id, ['seat' => $seat]);
 
         return $seat;
     }
 
-    /** Players ordered by seat. */
-    public function seatedPlayers()
+    /**
+     * Players ordered by seat.
+     *
+     * @return Collection<int, User>
+     */
+    public function seatedPlayers(): Collection
     {
         return $this->players()->orderBy('room_players.seat')->get();
     }

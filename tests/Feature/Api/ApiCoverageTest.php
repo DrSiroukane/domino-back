@@ -42,11 +42,32 @@ it('registers, logs in, returns the current user and logs out', function () {
     $token = $this->postJson('/api/login', ['email' => 'nadia@example.test', 'password' => 'secret123'])
         ->assertOk()->json('token');
 
-    $this->withToken($token)->getJson('/api/user')->assertOk()->assertJsonPath('email', 'nadia@example.test');
-    $this->withToken($token)->postJson('/api/logout')->assertOk();
+    $this->withToken($token)->getJson('/api/user')->assertOk()
+        ->assertExactJson(['data' => ['id' => $register->json('user.id'), 'name' => 'Nadia', 'email' => 'nadia@example.test']]);
+    $this->withToken($token)->postJson('/api/logout')->assertNoContent();
 
     $this->app['auth']->forgetGuards();
-    $this->withToken($token)->getJson('/api/user')->assertUnauthorized();
+    $this->withToken($token)->getJson('/api/user')->assertUnauthorized()
+        ->assertExactJson(['message' => 'Unauthenticated.', 'code' => 'unauthenticated']);
+});
+
+it('rejects an unknown room with not_found', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->postJson('/api/rooms/999999/join')
+        ->assertNotFound()->assertExactJson(['message' => 'Not found.', 'code' => 'not_found']);
+});
+
+it('rejects a wrong method with method_not_allowed', function () {
+    $this->getJson('/api/login')->assertStatus(405)->assertJson(['code' => 'method_not_allowed']);
+});
+
+it('rejects leaving a room you are not seated in', function () {
+    [$room] = startedRoom(2);
+    $outsider = User::factory()->create();
+
+    $this->actingAs($outsider)->postJson("/api/rooms/{$room->id}/leave")
+        ->assertForbidden()->assertJson(['code' => 'not_seated']);
 });
 
 it('rejects a wrong password and a duplicate email', function () {
@@ -99,7 +120,7 @@ it('validates room settings', function () {
 it('broadcasts a trimmed chat message from a seated player', function () {
     [$room, $users] = startedRoom(2);
 
-    $this->actingAs($users[1])->postJson("/api/rooms/{$room->id}/chat", ['message' => '  good game  '])->assertOk();
+    $this->actingAs($users[1])->postJson("/api/rooms/{$room->id}/chat", ['message' => '  good game  '])->assertNoContent();
 
     Event::assertDispatched(ChatMessageSent::class, fn ($e) => $e->message === 'good game' && $e->playerIndex === 1);
 });
@@ -108,12 +129,15 @@ it('rejects chat from outsiders, empty messages and rooms not playing', function
     [$room, $users] = startedRoom(2);
     $outsider = User::factory()->create();
 
-    $this->actingAs($outsider)->postJson("/api/rooms/{$room->id}/chat", ['message' => 'hi'])->assertForbidden();
-    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/chat", ['message' => '   '])->assertStatus(422);
+    $this->actingAs($outsider)->postJson("/api/rooms/{$room->id}/chat", ['message' => 'hi'])
+        ->assertForbidden()->assertJson(['code' => 'not_seated']);
+    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/chat", ['message' => '   '])
+        ->assertStatus(422)->assertJsonValidationErrors('message'); // blank after TrimStrings
     $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/chat", ['message' => str_repeat('a', 201)])->assertStatus(422);
 
     $room->update(['status' => RoomStatus::Finished]);
-    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/chat", ['message' => 'hi'])->assertStatus(422);
+    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/chat", ['message' => 'hi'])
+        ->assertStatus(422)->assertJson(['code' => 'game_not_in_progress']);
 });
 
 // ------------------------------------------------------------------ //

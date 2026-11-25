@@ -16,7 +16,7 @@ use App\Services\Game\Data\Tile;
  *  - Boneyard tiles are hidden; only the COUNT is revealed.
  *  - The board, history, scores, and config are fully public.
  */
-final class RedactorService
+final class Redactor
 {
     /**
      * @param  array<int, array{delta: int, newElo: int}>  $eloDeltas  Seat → ELO result; populated only when matchOver

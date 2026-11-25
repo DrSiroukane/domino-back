@@ -9,8 +9,7 @@ use App\Models\Room;
 use App\Services\BotPlayer;
 use App\Services\Game\Data\MatchState;
 use App\Services\GameBroadcaster;
-use App\Services\MatchFinalizerService;
-use App\Services\TurnTimerService;
+use App\Services\MatchSettler;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -22,11 +21,10 @@ use Illuminate\Queue\SerializesModels;
  * Fires when a player's turn timer expires.
  *
  * Under the room lock, verifies the stored turn token still matches (i.e. the
- * player hasn't moved), then auto-plays that turn and any following bot turns,
- * saves the state, finalizes the match if it ended, arms the next timer and
- * broadcasts after the commit.
+ * player hasn't moved), auto-plays that turn, settles it like any other move
+ * (MatchSettler), and broadcasts after the commit.
  */
-class TurnTimeoutJob implements ShouldQueue
+final class TurnTimeoutJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -40,10 +38,10 @@ class TurnTimeoutJob implements ShouldQueue
         public readonly string $turnToken,
     ) {}
 
-    public function handle(GameBroadcaster $broadcaster, MatchFinalizerService $finalizer, TurnTimerService $timer): void
+    public function handle(GameBroadcaster $broadcaster, MatchSettler $settler): void
     {
         try {
-            $result = Room::withLock($this->roomId, function (Room $room) use ($finalizer, $timer) {
+            $result = Room::withLock($this->roomId, function (Room $room) use ($settler): ?array {
                 if ($room->status !== RoomStatus::Playing) {
                     return null;
                 }
@@ -59,20 +57,9 @@ class TurnTimeoutJob implements ShouldQueue
                 }
 
                 $match = BotPlayer::autoPlay($match, $this->playerIndex);
-                $match = BotPlayer::autoPlayBots($match);
+                [$match, $eloDeltas] = $settler->settle($room, $match);
 
-                if ($match->matchOver) {
-                    $match->turnToken = null;
-                    $match->turnExpiresAt = null;
-
-                    return [$room, $match, $finalizer->finalize($room, $match)];
-                }
-
-                $match = $timer->arm($match);
-                $room->update(['match_state' => $match->toArray()]);
-                $timer->dispatch($room->id, $match);
-
-                return [$room, $match, []];
+                return [$room, $match, $eloDeltas];
             });
         } catch (ModelNotFoundException) {
             return;

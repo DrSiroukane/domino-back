@@ -8,7 +8,7 @@ use App\Events\GameStateUpdated;
 use App\Models\Room;
 use App\Services\Game\Data\ClientView;
 use App\Services\Game\Data\MatchState;
-use App\Services\Game\RedactorService;
+use App\Services\Game\Redactor;
 
 /**
  * Builds per-seat redacted views and pushes them to each seat's private channel.
@@ -16,7 +16,7 @@ use App\Services\Game\RedactorService;
  */
 final class GameBroadcaster
 {
-    public function __construct(private readonly RedactorService $redactor) {}
+    public function __construct(private readonly Redactor $redactor) {}
 
     /** @param  array<int, array{delta: int, newElo: int}>  $eloDeltas */
     public function view(Room $room, MatchState $match, int $seat, array $eloDeltas = []): ClientView

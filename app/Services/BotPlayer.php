@@ -11,7 +11,7 @@ use App\Services\Game\HintCallAdvisor;
 
 /**
  * Shared auto-play logic for bot-occupied seats.
- * Used by both GameController (immediate bot turns) and TurnTimeoutJob (timer-based).
+ * Used by MatchSettler (bot turns after every change) and TurnTimeoutJob (an expired human turn).
  */
 final class BotPlayer
 {

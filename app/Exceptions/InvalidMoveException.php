@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Exceptions;
 
-use RuntimeException;
-
-class InvalidMoveException extends RuntimeException
+/**
+ * A move that breaks the game rules (not your turn, illegal side…), answered with 422.
+ */
+final class InvalidMoveException extends ApiException
 {
-    public function __construct(string $message, public readonly string $errorCode = 'invalid_move')
+    public function __construct(string $message, string $errorCode = 'invalid_move')
     {
-        parent::__construct($message);
+        parent::__construct($message, $errorCode);
     }
 }

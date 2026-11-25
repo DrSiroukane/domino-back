@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-class RoundState
+/**
+ * One round: hands, boneyard, board, turn and history. Mutable on purpose: the engine updates it in place.
+ */
+final class RoundState
 {
     /**
      * @param  Tile[][]  $hands

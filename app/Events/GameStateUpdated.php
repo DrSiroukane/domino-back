@@ -17,15 +17,16 @@ use Illuminate\Queue\SerializesModels;
  * Channel pattern: room.{roomId}.seat.{seatIndex}
  * Fire this once per seated player after every state-changing action.
  */
-class GameStateUpdated implements ShouldBroadcastNow
+final class GameStateUpdated implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(
-        private readonly int $roomId,
-        private readonly ClientView $clientView,
+        public readonly int $roomId,
+        public readonly ClientView $clientView,
     ) {}
 
+    /** @return array<int, PrivateChannel> */
     public function broadcastOn(): array
     {
         $seat = $this->clientView->playerIndex;
@@ -33,13 +34,13 @@ class GameStateUpdated implements ShouldBroadcastNow
         return [new PrivateChannel("room.{$this->roomId}.seat.{$seat}")];
     }
 
-    public function broadcastWith(): array
-    {
-        return $this->clientView->toArray();
-    }
-
     public function broadcastAs(): string
     {
         return 'game.state';
+    }
+
+    public function broadcastWith(): array
+    {
+        return $this->clientView->toArray();
     }
 }

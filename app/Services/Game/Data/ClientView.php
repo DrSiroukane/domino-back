@@ -8,7 +8,7 @@ namespace App\Services\Game\Data;
  * The redacted match state sent to a specific player.
  * Opponents' tile pips and boneyard contents are hidden.
  */
-readonly class ClientView
+final readonly class ClientView
 {
     /**
      * @param  int[]  $handCounts  Tile count per seat (all players, including self)

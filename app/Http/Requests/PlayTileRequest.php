@@ -8,7 +8,10 @@ use App\Services\Game\Enums\HintCall;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class PlayTileRequest extends FormRequest
+/**
+ * Input for playing a tile: which tile, which side, and an optional hint call.
+ */
+final class PlayTileRequest extends FormRequest
 {
     public function rules(): array
     {

@@ -10,10 +10,10 @@ use App\Services\Game\Enums\BlockedTiebreak;
 use App\Services\Game\Enums\Difficulty;
 use App\Services\Game\Enums\Opponents;
 use App\Services\Game\GameEngine;
-use App\Services\Game\RedactorService;
+use App\Services\Game\Redactor;
 use Tests\TestCase;
 
-class RedactorServiceTest extends TestCase
+class RedactorTest extends TestCase
 {
     private function makeMatch(int $numPlayers = 2): MatchState
     {
@@ -32,7 +32,7 @@ class RedactorServiceTest extends TestCase
     public function test_own_hand_is_fully_visible(): void
     {
         $match = $this->makeMatch();
-        $view = (new RedactorService)->redact($match, 0);
+        $view = (new Redactor)->redact($match, 0);
 
         $this->assertCount(7, $view->myHand);
         foreach ($view->myHand as $tile) {
@@ -45,7 +45,7 @@ class RedactorServiceTest extends TestCase
     public function test_hand_counts_cover_all_seats(): void
     {
         $match = $this->makeMatch(2);
-        $view = (new RedactorService)->redact($match, 0);
+        $view = (new Redactor)->redact($match, 0);
 
         $this->assertCount(2, $view->handCounts);
         $this->assertSame(7, $view->handCounts[0]);
@@ -55,7 +55,7 @@ class RedactorServiceTest extends TestCase
     public function test_boneyard_count_is_correct_and_tiles_are_hidden(): void
     {
         $match = $this->makeMatch(2);
-        $view = (new RedactorService)->redact($match, 0);
+        $view = (new Redactor)->redact($match, 0);
 
         // 28 tiles - 14 dealt (2 players × 7) = 14 in boneyard
         $this->assertSame(14, $view->boneyardCount);
@@ -67,8 +67,8 @@ class RedactorServiceTest extends TestCase
     {
         $match = $this->makeMatch(2);
 
-        $view0 = (new RedactorService)->redact($match, 0);
-        $view1 = (new RedactorService)->redact($match, 1);
+        $view0 = (new Redactor)->redact($match, 0);
+        $view1 = (new Redactor)->redact($match, 1);
 
         $this->assertSame(0, $view0->playerIndex);
         $this->assertSame(1, $view1->playerIndex);
@@ -77,7 +77,7 @@ class RedactorServiceTest extends TestCase
     public function test_different_players_see_different_hands(): void
     {
         $match = $this->makeMatch(2);
-        $redactor = new RedactorService;
+        $redactor = new Redactor;
 
         $view0 = $redactor->redact($match, 0);
         $view1 = $redactor->redact($match, 1);
@@ -92,7 +92,7 @@ class RedactorServiceTest extends TestCase
     public function test_board_and_scores_are_public(): void
     {
         $match = $this->makeMatch(2);
-        $view = (new RedactorService)->redact($match, 0);
+        $view = (new Redactor)->redact($match, 0);
 
         $this->assertIsArray($view->board);
         $this->assertIsArray($view->scores);
@@ -102,7 +102,7 @@ class RedactorServiceTest extends TestCase
     public function test_to_array_contains_expected_keys(): void
     {
         $match = $this->makeMatch(2);
-        $view = (new RedactorService)->redact($match, 0);
+        $view = (new Redactor)->redact($match, 0);
         $arr = $view->toArray();
 
         foreach (['playerIndex', 'myHand', 'handCounts', 'board', 'boneyardCount',

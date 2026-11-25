@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Enums\RoomStatus;
+use App\Exceptions\ApiException;
 use App\Http\Requests\CreateRoomRequest;
 use App\Http\Resources\RoomResource;
 use App\Models\Room;
-use App\Services\BotPlayer;
 use App\Services\Game\Data\MatchConfig;
 use App\Services\Game\Data\MatchState;
 use App\Services\Game\Enums\BlockedTiebreak;
@@ -16,21 +16,22 @@ use App\Services\Game\Enums\Difficulty;
 use App\Services\Game\Enums\Opponents;
 use App\Services\Game\GameEngine;
 use App\Services\GameBroadcaster;
-use App\Services\MatchFinalizerService;
-use App\Services\TurnTimerService;
-use Illuminate\Http\JsonResponse;
+use App\Services\MatchSettler;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 
-class RoomController extends Controller
+/**
+ * The lobby: open rooms, creating one, taking a seat and leaving.
+ */
+final class RoomController extends Controller
 {
     /** Waiting rooms older than this are hidden from the lobby (creator most likely gone). */
     private const WAITING_ROOM_TTL_HOURS = 2;
 
     public function __construct(
         private readonly GameBroadcaster $broadcaster,
-        private readonly MatchFinalizerService $finalizer,
-        private readonly TurnTimerService $timer,
+        private readonly MatchSettler $settler,
     ) {}
 
     public function index(): AnonymousResourceCollection
@@ -57,17 +58,17 @@ class RoomController extends Controller
         return new RoomResource($room);
     }
 
-    public function join(Request $request, Room $room): RoomResource|JsonResponse
+    public function join(Request $request, Room $room): RoomResource
     {
-        $result = Room::withLock($room->id, function (Room $room) use ($request) {
+        [$room, $match] = Room::withLock($room->id, function (Room $room) use ($request): array {
             if ($room->status !== RoomStatus::Waiting) {
-                return response()->json(['message' => 'Room is not open.'], 422);
+                throw new ApiException('The room is not open.', 'room_not_open');
             }
             if ($room->players()->where('users.id', $request->user()->id)->exists()) {
-                return response()->json(['message' => 'Already in this room.'], 422);
+                throw new ApiException('You are already in this room.', 'already_in_room');
             }
             if ($room->nextFreeSeat() === null) {
-                return response()->json(['message' => 'Room is full.'], 422);
+                throw new ApiException('The room is full.', 'room_full');
             }
 
             $room->seatPlayer($request->user());
@@ -80,11 +81,6 @@ class RoomController extends Controller
             return [$room, $match];
         });
 
-        if ($result instanceof JsonResponse) {
-            return $result;
-        }
-
-        [$room, $match] = $result;
         if ($match !== null) {
             $this->broadcaster->broadcastAll($room, $match);
         }
@@ -98,12 +94,12 @@ class RoomController extends Controller
      * it, and the match counts as a loss for you. You can come back and
      * reclaim the seat while the game is still going.
      */
-    public function leave(Request $request, Room $room): JsonResponse
+    public function leave(Request $request, Room $room): Response
     {
-        $result = Room::withLock($room->id, function (Room $room) use ($request) {
+        $settled = Room::withLock($room->id, function (Room $room) use ($request): ?array {
             $seat = $room->getPlayerIndex($request->user());
             if ($seat === null) {
-                return response()->json(['message' => 'You are not in this room.'], 422);
+                throw new ApiException('You are not seated in this room.', 'not_seated', 403);
             }
 
             if ($room->status === RoomStatus::Waiting) {
@@ -132,28 +128,17 @@ class RoomController extends Controller
                 return null;
             }
 
-            $match = BotPlayer::autoPlayBots($match);
-            $eloDeltas = [];
-            if ($match->matchOver) {
-                $eloDeltas = $this->finalizer->finalize($room, $match);
-            } else {
-                $match = $this->timer->arm($match);
-                $room->update(['match_state' => $match->toArray()]);
-                $this->timer->dispatch($room->id, $match);
-            }
+            [$match, $eloDeltas] = $this->settler->settle($room, $match);
 
             return [$room, $match, $eloDeltas];
         });
 
-        if ($result instanceof JsonResponse) {
-            return $result;
-        }
-        if (is_array($result)) {
-            [$room, $match, $eloDeltas] = $result;
+        if ($settled !== null) {
+            [$room, $match, $eloDeltas] = $settled;
             $this->broadcaster->broadcastAll($room, $match, $eloDeltas);
         }
 
-        return response()->json(['message' => 'Left the room.']);
+        return response()->noContent();
     }
 
     /** Builds and saves the opening state once the room is full (inside the room lock). */
@@ -173,13 +158,9 @@ class RoomController extends Controller
             hintCalls: (bool) ($s['hintCalls'] ?? false),
         );
 
-        $match = $this->timer->arm(GameEngine::initMatch($config));
-
-        $room->update([
-            'status' => RoomStatus::Playing,
-            'match_state' => $match->toArray(),
-        ]);
-        $this->timer->dispatch($room->id, $match);
+        // settle() saves the room, status included, and arms the first turn timer.
+        $room->status = RoomStatus::Playing;
+        [$match] = $this->settler->settle($room, GameEngine::initMatch($config));
 
         return $match;
     }

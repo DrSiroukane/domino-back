@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-readonly class BoardEntryPlayed implements BoardEntry
+/**
+ * A tile played on the left or right end, with the number it matched and the one it leaves open.
+ */
+final readonly class BoardEntryPlayed implements BoardEntry
 {
     public function __construct(
         public Tile $tile,

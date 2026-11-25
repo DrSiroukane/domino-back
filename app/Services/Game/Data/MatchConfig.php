@@ -8,7 +8,10 @@ use App\Services\Game\Enums\BlockedTiebreak;
 use App\Services\Game\Enums\Difficulty;
 use App\Services\Game\Enums\Opponents;
 
-readonly class MatchConfig
+/**
+ * The settings a match is played with; fixed for the whole match.
+ */
+final readonly class MatchConfig
 {
     public function __construct(
         public int $numPlayers,        // 2 or 4

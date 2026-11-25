@@ -13,9 +13,9 @@ use App\Services\Game\Enums\Difficulty;
 use App\Services\Game\Enums\Opponents;
 use App\Services\Game\GameEngine;
 use App\Services\GameBroadcaster;
-use App\Services\MatchFinalizerService;
-use App\Services\PresenceService;
-use App\Services\TurnTimerService;
+use App\Services\MatchFinalizer;
+use App\Services\MatchSettler;
+use App\Services\PresenceChecker;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -44,7 +44,7 @@ function roomWithPlayers(array $users, int $maxPlayers, array $settings = []): R
 /** Makes the presence check report exactly these user ids as connected (null = unavailable). */
 function fakePresence(?array $connectedIds): void
 {
-    app()->instance(PresenceService::class, new class($connectedIds) extends PresenceService
+    app()->instance(PresenceChecker::class, new class($connectedIds) extends PresenceChecker
     {
         public function __construct(private readonly ?array $ids) {}
 
@@ -95,7 +95,7 @@ it('gives a seat freed in the waiting room to the next joiner without moving any
     [$a, $b, $c, $d] = User::factory()->count(4)->create()->all();
     $room = roomWithPlayers([$a, $b, $c], 4);
 
-    $this->actingAs($b)->postJson("/api/rooms/{$room->id}/leave")->assertOk();
+    $this->actingAs($b)->postJson("/api/rooms/{$room->id}/leave")->assertNoContent();
     $this->actingAs($d)->postJson("/api/rooms/{$room->id}/join")->assertOk();
 
     $room->refresh();
@@ -119,7 +119,7 @@ it('keeps every seat in place when a player leaves mid-game, and a bot takes the
     $users = User::factory()->count(4)->create()->all();
     $room = roomWithPlayers($users, 4);
 
-    $this->actingAs($users[1])->postJson("/api/rooms/{$room->id}/leave")->assertOk();
+    $this->actingAs($users[1])->postJson("/api/rooms/{$room->id}/leave")->assertNoContent();
 
     $room->refresh();
     $match = MatchState::fromArray($room->match_state);
@@ -135,8 +135,8 @@ it('closes the room without stats when every player has left', function () {
     $users = User::factory()->count(2)->create(['wins' => 0, 'losses' => 0])->all();
     $room = roomWithPlayers($users, 2);
 
-    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/leave")->assertOk();
-    $this->actingAs($users[1])->postJson("/api/rooms/{$room->id}/leave")->assertOk();
+    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/leave")->assertNoContent();
+    $this->actingAs($users[1])->postJson("/api/rooms/{$room->id}/leave")->assertNoContent();
 
     expect($room->fresh()->status)->toBe(RoomStatus::Finished)
         ->and($users[0]->fresh()->losses)->toBe(0)
@@ -146,7 +146,7 @@ it('closes the room without stats when every player has left', function () {
 it('lets a player reclaim their seat from the bot', function () {
     $users = User::factory()->count(4)->create()->all();
     $room = roomWithPlayers($users, 4);
-    $this->actingAs($users[2])->postJson("/api/rooms/{$room->id}/leave")->assertOk();
+    $this->actingAs($users[2])->postJson("/api/rooms/{$room->id}/leave")->assertNoContent();
 
     $view = $this->actingAs($users[2])->postJson("/api/rooms/{$room->id}/reclaim")->assertOk()->json();
 
@@ -187,29 +187,31 @@ it('hides stale waiting rooms from the lobby', function () {
 // Bot substitution
 // ------------------------------------------------------------------ //
 
-it('refuses to replace a seat that does not exist', function () {
+it('rejects replacing a seat that does not exist', function () {
     $users = User::factory()->count(2)->create()->all();
     $room = roomWithPlayers($users, 2);
     fakePresence([$users[0]->id]);
 
-    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/substitute-bot/9")->assertStatus(422);
+    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/substitute-bot/9")
+        ->assertStatus(422)->assertJson(['code' => 'no_such_seat']);
 });
 
-it('refuses to replace a player who is still connected', function () {
+it('rejects replacing a player who is still connected', function () {
     $users = User::factory()->count(2)->create()->all();
     $room = roomWithPlayers($users, 2);
     fakePresence([$users[0]->id, $users[1]->id]);
 
     $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/substitute-bot/1")
-        ->assertStatus(422)->assertJson(['message' => 'That player is still connected.']);
+        ->assertStatus(422)->assertJson(['message' => 'That player is still connected.', 'code' => 'player_connected']);
 });
 
-it('refuses when presence cannot be checked', function () {
+it('rejects when presence cannot be checked', function () {
     $users = User::factory()->count(2)->create()->all();
     $room = roomWithPlayers($users, 2);
     fakePresence(null);
 
-    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/substitute-bot/1")->assertStatus(503);
+    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/substitute-bot/1")
+        ->assertStatus(503)->assertJson(['code' => 'presence_unavailable']);
 });
 
 it('replaces a disconnected player with a bot', function () {
@@ -217,7 +219,7 @@ it('replaces a disconnected player with a bot', function () {
     $room = roomWithPlayers($users, 4);
     fakePresence([$users[0]->id, $users[1]->id, $users[2]->id]);
 
-    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/substitute-bot/3")->assertOk();
+    $this->actingAs($users[0])->postJson("/api/rooms/{$room->id}/substitute-bot/3")->assertNoContent();
 
     expect(MatchState::fromArray($room->fresh()->match_state)->botSeats)->toBe([3]);
 });
@@ -230,7 +232,7 @@ it('finalizes a match only once', function () {
     $users = User::factory()->count(2)->create(['elo' => 1000, 'wins' => 0, 'losses' => 0])->all();
     $room = roomWithPlayers($users, 2);
     $match = finishedMatch(2, false, 0);
-    $finalizer = new MatchFinalizerService;
+    $finalizer = new MatchFinalizer;
 
     $finalizer->finalize($room, $match);
     $finalizer->finalize($room->fresh(), $match);
@@ -245,7 +247,7 @@ it('compares a 2v2 seat with the opposing team only', function () {
     $users[2]->update(['elo' => 2000]); // seat 0's partner: must not change seat 0's result
     $room = roomWithPlayers($users, 4);
 
-    $deltas = (new MatchFinalizerService)->finalize($room, finishedMatch(4, true, 0));
+    $deltas = (new MatchFinalizer)->finalize($room, finishedMatch(4, true, 0));
 
     expect($deltas[0]['delta'])->toBe(16);
 });
@@ -257,7 +259,7 @@ it('counts a forfeited seat as a loss even when its team wins', function () {
     $match->botSeats = [2, 3];
     $match->forfeitedSeats = [2];
 
-    $deltas = (new MatchFinalizerService)->finalize($room, $match);
+    $deltas = (new MatchFinalizer)->finalize($room, $match);
 
     expect($users[2]->fresh()->losses)->toBe(1)
         ->and($users[0]->fresh()->wins)->toBe(1)
@@ -279,9 +281,7 @@ it('arms the turn timer when the game starts and ignores a stale timeout', funct
     Queue::assertPushed(TurnTimeoutJob::class, fn ($job) => $job->turnToken === $match->turnToken);
 
     $before = $room->fresh()->match_state;
-    (new TurnTimeoutJob($room->id, $match->round->currentPlayer, 'stale-token'))->handle(
-        app(GameBroadcaster::class), new MatchFinalizerService, new TurnTimerService,
-    );
+    (new TurnTimeoutJob($room->id, $match->round->currentPlayer, 'stale-token'))->handle(app(GameBroadcaster::class), app(MatchSettler::class));
     expect($room->fresh()->match_state)->toBe($before);
 });
 
@@ -291,9 +291,7 @@ it('auto-plays an expired turn and arms the next one', function () {
     $room = roomWithPlayers($users, 2, ['turnTimer' => 30]);
     $match = MatchState::fromArray($room->match_state);
 
-    (new TurnTimeoutJob($room->id, $match->round->currentPlayer, $match->turnToken))->handle(
-        app(GameBroadcaster::class), new MatchFinalizerService, new TurnTimerService,
-    );
+    (new TurnTimeoutJob($room->id, $match->round->currentPlayer, $match->turnToken))->handle(app(GameBroadcaster::class), app(MatchSettler::class));
 
     $after = MatchState::fromArray($room->fresh()->match_state);
     expect(count($after->round->history))->toBeGreaterThan(0)

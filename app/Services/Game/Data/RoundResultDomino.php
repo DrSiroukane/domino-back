@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-readonly class RoundResultDomino implements RoundResult
+/**
+ * A round won by playing the last tile, and the points awarded.
+ */
+final readonly class RoundResultDomino implements RoundResult
 {
     public function __construct(
         public int $winner,

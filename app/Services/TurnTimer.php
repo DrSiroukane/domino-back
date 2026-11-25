@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
  * returned state; the job is dispatched after the surrounding transaction
  * commits so it never sees a state that was rolled back.
  */
-final class TurnTimerService
+final class TurnTimer
 {
     public function arm(MatchState $match): MatchState
     {

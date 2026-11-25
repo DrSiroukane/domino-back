@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Game\Data;
 
-readonly class RoundResultBlocked implements RoundResult
+/**
+ * A blocked round: who won on pips (or a tie) and the points awarded.
+ */
+final readonly class RoundResultBlocked implements RoundResult
 {
     public function __construct(
         public int $points,
