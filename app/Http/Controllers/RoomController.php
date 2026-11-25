@@ -48,7 +48,8 @@ final class RoomController extends Controller
     public function store(CreateRoomRequest $request): RoomResource
     {
         $room = Room::create([
-            'max_players' => $request->validated('max_players'),
+            'status' => RoomStatus::Waiting,
+            'max_players' => $request->validated('maxPlayers'),
             'settings' => $request->validated('settings', []),
         ]);
 

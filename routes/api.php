@@ -50,7 +50,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     Route::post('/rooms/{room}/reclaim', [GameController::class, 'reclaim']);
 
     // Bot substitution (any seated player may substitute a disconnected opponent)
-    Route::post('/rooms/{room}/substitute-bot/{seatIndex}', [GameController::class, 'substituteBot']);
+    Route::post('/rooms/{room}/substitute-bot/{seat}', [GameController::class, 'substituteBot']);
 
     // In-game chat
     Route::post('/rooms/{room}/chat', [ChatController::class, 'store']);

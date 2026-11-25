@@ -60,6 +60,9 @@ composer dev
 ## API Reference
 
 All endpoints (except `/register`, `/login`, and `/health`) require a `Bearer` token via Laravel Sanctum.
+The full agreement with domino-front — words, every field, error code, channel
+and event — is in [`docs/CONTRACT.md`](docs/CONTRACT.md). JSON keys are camelCase
+in both directions (`maxPlayers`, `mySeat`, `tileId`).
 
 **Responses.** Resources come wrapped in `data` (`{"data": {...}}`); move
 endpoints return the player's redacted `ClientView` at the top level; endpoints
@@ -94,10 +97,10 @@ Validation errors keep Laravel's `{"message", "errors"}` shape.
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/rooms/{room}/state` | Get the current redacted game state → `ClientView` |
-| `POST` | `/api/rooms/{room}/play` | Play a tile (`tile_id`, `side`, optional hint `call`) → `ClientView` |
+| `POST` | `/api/rooms/{room}/play` | Play a tile (`tileId`, `side`, optional hint `call`) → `ClientView` |
 | `POST` | `/api/rooms/{room}/draw` | Draw a tile from the boneyard → `ClientView` |
 | `POST` | `/api/rooms/{room}/pass` | Pass turn (when no valid move or draw); optional hint `call`: only `close_game` → `ClientView` |
-| `POST` | `/api/rooms/{room}/substitute-bot/{seatIndex}` | Replace a disconnected player with a bot (seat must be absent from the presence channel) → `204` |
+| `POST` | `/api/rooms/{room}/substitute-bot/{seat}` | Replace a disconnected player with a bot (seat must be absent from the presence channel) → `204` |
 | `POST` | `/api/rooms/{room}/reclaim` | Take your seat back from the bot → `ClientView` |
 
 ### Chat
@@ -120,8 +123,8 @@ Authentication for private/presence channels goes through `/api/broadcasting/aut
 
 | Channel | Type | Description |
 |---|---|---|
-| `room.{id}` | Presence | Tracks who is connected to a room; carries game state events |
-| `room.{roomId}.seat.{seatIndex}` | Private | Per-seat channel for sending redacted state only to its owner |
+| `room.{roomId}` | Presence | Tracks who is connected to a room; carries game state events |
+| `room.{roomId}.seat.{seat}` | Private | Per-seat channel for sending redacted state only to its owner |
 
 ### Key Broadcast Events
 

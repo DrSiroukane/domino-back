@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Services\Game\Enums\HintCall;
+use App\Services\Game\Enums\Side;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -13,11 +14,12 @@ use Illuminate\Validation\Rule;
  */
 final class PlayTileRequest extends FormRequest
 {
+    /** @return array<string, mixed> */
     public function rules(): array
     {
         return [
-            'tile_id' => ['required', 'integer', 'min:0', 'max:27'],
-            'side' => ['required', 'string', 'in:left,right,start'],
+            'tileId' => ['required', 'integer', 'min:0', 'max:27'],
+            'side' => ['required', 'string', Rule::enum(Side::class)],
             'call' => ['sometimes', 'nullable', 'string', Rule::enum(HintCall::class)],
         ];
     }

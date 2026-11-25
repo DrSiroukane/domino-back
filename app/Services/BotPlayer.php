@@ -46,7 +46,7 @@ final class BotPlayer
             $bestScore = PHP_INT_MIN;
             foreach ($hand as $tile) {
                 foreach (GameEngine::legalSidesForTile($round, $tile) as $side) {
-                    $score = HintCallAdvisor::scoreMove($round, $playerIndex, $tile, $side);
+                    $score = HintCallAdvisor::callScore($round, $playerIndex, $tile, $side);
                     if ($score > $bestScore) {
                         $best = [$tile, $side];
                         $bestScore = $score;

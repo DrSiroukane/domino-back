@@ -30,7 +30,7 @@ beforeEach(function () {
 function roomWithPlayers(array $users, int $maxPlayers, array $settings = []): Room
 {
     $room = test()->actingAs($users[0])
-        ->postJson('/api/rooms', ['max_players' => $maxPlayers, 'settings' => $settings])
+        ->postJson('/api/rooms', ['maxPlayers' => $maxPlayers, 'settings' => $settings])
         ->assertCreated()
         ->json('data');
 
@@ -84,11 +84,11 @@ it('assigns seats in join order even when everyone joins in the same second', fu
 
 it('returns the caller\'s seat with the room', function () {
     $users = User::factory()->count(2)->create()->all();
-    $room = $this->actingAs($users[0])->postJson('/api/rooms', ['max_players' => 4])->json('data');
+    $room = $this->actingAs($users[0])->postJson('/api/rooms', ['maxPlayers' => 4])->json('data');
 
     $joined = $this->actingAs($users[1])->postJson("/api/rooms/{$room['id']}/join")->json('data');
 
-    expect($room['my_seat'])->toBe(0)->and($joined['my_seat'])->toBe(1);
+    expect($room['mySeat'])->toBe(0)->and($joined['mySeat'])->toBe(1);
 });
 
 it('gives a seat freed in the waiting room to the next joiner without moving anyone', function () {

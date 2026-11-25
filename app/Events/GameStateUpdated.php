@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Events;
 
+use App\Broadcasting\Channels;
 use App\Services\Game\Data\ClientView;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -14,7 +15,7 @@ use Illuminate\Queue\SerializesModels;
 /**
  * Broadcast the redacted game state to one specific player's private channel.
  *
- * Channel pattern: room.{roomId}.seat.{seatIndex}
+ * Channel: Channels::seat() — room.{roomId}.seat.{seat}
  * Fire this once per seated player after every state-changing action.
  */
 final class GameStateUpdated implements ShouldBroadcastNow
@@ -29,9 +30,7 @@ final class GameStateUpdated implements ShouldBroadcastNow
     /** @return array<int, PrivateChannel> */
     public function broadcastOn(): array
     {
-        $seat = $this->clientView->playerIndex;
-
-        return [new PrivateChannel("room.{$this->roomId}.seat.{$seat}")];
+        return [new PrivateChannel(Channels::seat($this->roomId, $this->clientView->playerIndex))];
     }
 
     public function broadcastAs(): string

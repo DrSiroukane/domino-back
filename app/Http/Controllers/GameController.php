@@ -38,7 +38,7 @@ final class GameController extends Controller
         return $this->handleMove($room, $request, fn (Room $locked, int $seat): MatchState => (new PlayTileAction)->execute(
             $locked,
             $seat,
-            (int) $request->validated('tile_id'),
+            (int) $request->validated('tileId'),
             $request->validated('side'),
             $request->validated('call'),
         ));
@@ -117,9 +117,9 @@ final class GameController extends Controller
      * Any seated player may request it, but only for a seat whose player is
      * not connected to the room's presence channel.
      */
-    public function substituteBot(Request $request, Room $room, int $seatIndex): Response
+    public function substituteBot(Request $request, Room $room, int $seat): Response
     {
-        [$room, $match, $eloDeltas] = Room::withLock($room->id, function (Room $room) use ($request, $seatIndex): array {
+        [$room, $match, $eloDeltas] = Room::withLock($room->id, function (Room $room) use ($request, $seat): array {
             if ($room->status !== RoomStatus::Playing) {
                 throw new ApiException('The game is not in progress.', 'game_not_in_progress');
             }
@@ -131,16 +131,16 @@ final class GameController extends Controller
 
             $match = MatchState::fromArray($room->match_state);
 
-            if ($seatIndex < 0 || $seatIndex >= $match->config->numPlayers) {
+            if ($seat < 0 || $seat >= $match->config->numPlayers) {
                 throw new ApiException('There is no such seat.', 'no_such_seat');
             }
-            if ($requester === $seatIndex) {
+            if ($requester === $seat) {
                 throw new ApiException('You cannot substitute yourself.', 'cannot_substitute_self');
             }
             if ($match->matchOver) {
                 throw new ApiException('The match is already over.', 'match_over');
             }
-            if (in_array($seatIndex, $match->botSeats, true)) {
+            if (in_array($seat, $match->botSeats, true)) {
                 throw new ApiException('That seat is already played by a bot.', 'seat_already_bot');
             }
 
@@ -148,12 +148,12 @@ final class GameController extends Controller
             if ($connected === null) {
                 throw new ApiException('Who is connected cannot be checked right now. Try again.', 'presence_unavailable', 503);
             }
-            $targetUserId = $room->getSeatUserIds()[$seatIndex] ?? null;
+            $targetUserId = $room->getSeatUserIds()[$seat] ?? null;
             if ($targetUserId !== null && in_array($targetUserId, $connected, true)) {
                 throw new ApiException('That player is still connected.', 'player_connected');
             }
 
-            $match->botSeats = array_values(array_unique([...$match->botSeats, $seatIndex]));
+            $match->botSeats = array_values(array_unique([...$match->botSeats, $seat]));
             [$match, $eloDeltas] = $this->settler->settle($room, $match);
 
             return [$room, $match, $eloDeltas];

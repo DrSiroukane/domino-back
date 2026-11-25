@@ -19,7 +19,7 @@ This is the Laravel 13 backend for the Domino double-six multiplayer game. It pr
 
 ### 2. Real-Time Sync (Laravel Reverb)
 - **Events**: Game state updates should be broadcast using Laravel Events that implement `ShouldBroadcastNow`.
-- **Channels**: Use Presence Channels (`room.{roomId}`) so the server knows exactly who is currently connected and sitting at the table; game state goes to each seat's private channel `room.{roomId}.seat.{seatIndex}`.
+- **Channels**: Use Presence Channels (`room.{roomId}`) so the server knows exactly who is currently connected and sitting at the table; game state goes to each seat's private channel `room.{roomId}.seat.{seat}` (names and patterns built by `App\Broadcasting\Channels`).
 - **Payloads**: Broadcast payloads should only contain the specific `ClientView` for the user receiving it, or use Whispers / targeted events if needed.
 
 ### 3. API Design
@@ -30,11 +30,12 @@ This is the Laravel 13 backend for the Domino double-six multiplayer game. It pr
 
 ### 4. Code Style
 The full conventions — layers, PHP, naming, HTTP API, database, broadcasting,
-comments, tests and commits — are in `docs/CONVENTIONS.md`. Read it before
-writing code. In short:
+comments, tests and commits — are in `docs/CONVENTIONS.md`, and the agreement
+with domino-front (words, endpoints, errors, channels, game model) is in
+`docs/CONTRACT.md`. Read both before writing code. In short:
 - **Strict Typing**: `declare(strict_types=1);` in every PHP file (arch test).
 - **PHP 8.3 Features**: readonly value objects, enums, `match`, constructor promotion.
-- **Naming**: camelCase for methods/variables, PascalCase for classes, snake_case for DB columns and request fields.
+- **Naming**: camelCase for methods/variables and every JSON key, PascalCase for classes, snake_case for DB columns.
 
 ## ✅ Before every commit
 1. `vendor/bin/pint --test` and `php artisan test` pass (the suite includes the

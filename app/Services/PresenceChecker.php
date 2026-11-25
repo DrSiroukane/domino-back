@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Broadcasting\Channels;
 use Illuminate\Broadcasting\Broadcasters\PusherBroadcaster;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Log;
@@ -30,7 +31,7 @@ class PresenceChecker
                 return null;
             }
 
-            $response = $broadcaster->getPusher()->getPresenceUsers("presence-room.{$roomId}");
+            $response = $broadcaster->getPusher()->getPresenceUsers(Channels::presenceRoom($roomId));
 
             return array_values(array_map(
                 fn ($u) => (int) $u->id,

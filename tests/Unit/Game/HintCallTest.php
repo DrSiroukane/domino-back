@@ -220,8 +220,8 @@ class HintCallTest extends TestCase
         $round = $this->round([$this->t(6, 3), $this->t(6, 1), $this->t(4, 4)], history: $history);
 
         $this->assertGreaterThan(
-            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'right'),
-            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 3), 'right'),
+            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
+            HintCallAdvisor::callScore($round, 0, $this->t(6, 3), 'right'),
         );
     }
 
@@ -234,8 +234,8 @@ class HintCallTest extends TestCase
         $round = $this->round([$this->t(6, 1), $this->t(4, 4), $this->t(3, 3)], history: $history);
 
         $this->assertGreaterThan(
-            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'right'),
-            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'left'),
+            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
+            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'left'),
         );
     }
 
@@ -315,8 +315,8 @@ class HintCallTest extends TestCase
         $round->hands[0][] = new Tile(6, 6, 99); // a second 6-6 only for the test: it would keep 6 | 6 open
 
         $this->assertGreaterThan(
-            HintCallAdvisor::scoreMove($round, 0, new Tile(6, 6, 99), 'right'),
-            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'right'),
+            HintCallAdvisor::callScore($round, 0, new Tile(6, 6, 99), 'right'),
+            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
         );
     }
 
@@ -327,8 +327,8 @@ class HintCallTest extends TestCase
         $round = $this->round([$this->t(6, 1)], history: $history);
 
         $this->assertGreaterThan(
-            HintCallAdvisor::scoreMove($round, 0, $this->t(6, 1), 'right'),
-            HintCallAdvisor::scoreMove($round, 0, new Tile(6, 6, 99), 'right'),
+            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
+            HintCallAdvisor::callScore($round, 0, new Tile(6, 6, 99), 'right'),
         );
     }
 

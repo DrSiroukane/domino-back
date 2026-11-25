@@ -19,7 +19,7 @@ function startedRoom(int $n, array $settings = []): array
     Event::fake();
     $users = User::factory()->count($n)->create()->all();
     $id = test()->actingAs($users[0])
-        ->postJson('/api/rooms', ['max_players' => $n, 'settings' => $settings])
+        ->postJson('/api/rooms', ['maxPlayers' => $n, 'settings' => $settings])
         ->json('data.id');
     foreach (array_slice($users, 1) as $u) {
         test()->actingAs($u)->postJson("/api/rooms/{$id}/join")->assertOk();
@@ -35,7 +35,7 @@ function startedRoom(int $n, array $settings = []): array
 it('registers, logs in, returns the current user and logs out', function () {
     $register = $this->postJson('/api/register', [
         'name' => 'Nadia', 'email' => 'nadia@example.test',
-        'password' => 'secret123', 'password_confirmation' => 'secret123',
+        'password' => 'secret123', 'passwordConfirmation' => 'secret123',
     ])->assertCreated()->assertJsonStructure(['user' => ['id', 'name', 'email'], 'token']);
     expect($register->json('user'))->not->toHaveKey('password');
 
@@ -77,14 +77,14 @@ it('rejects a wrong password and a duplicate email', function () {
         ->assertStatus(422)->assertJsonValidationErrors('email');
     $this->postJson('/api/register', [
         'name' => 'X', 'email' => 'taken@example.test',
-        'password' => 'secret123', 'password_confirmation' => 'secret123',
+        'password' => 'secret123', 'passwordConfirmation' => 'secret123',
     ])->assertStatus(422)->assertJsonValidationErrors('email');
 });
 
 it('ignores rating fields sent at registration', function () {
     $this->postJson('/api/register', [
         'name' => 'Cheat', 'email' => 'cheat@example.test',
-        'password' => 'secret123', 'password_confirmation' => 'secret123',
+        'password' => 'secret123', 'passwordConfirmation' => 'secret123',
         'elo' => 9999, 'wins' => 500,
     ])->assertCreated();
 
@@ -94,21 +94,42 @@ it('ignores rating fields sent at registration', function () {
 
 it('requires a token for game routes', function () {
     $this->getJson('/api/rooms')->assertUnauthorized();
-    $this->postJson('/api/rooms', ['max_players' => 2])->assertUnauthorized();
+    $this->postJson('/api/rooms', ['maxPlayers' => 2])->assertUnauthorized();
+});
+
+it('answers a room in camelCase, with the caller\'s seat', function () {
+    $user = User::factory()->create();
+
+    $room = $this->actingAs($user)->postJson('/api/rooms', ['maxPlayers' => 2, 'settings' => ['target' => 150]])
+        ->assertCreated()->json('data');
+
+    expect(array_keys($room))->toBe(['id', 'status', 'maxPlayers', 'playerCount', 'settings', 'mySeat', 'createdAt'])
+        ->and($room)->toMatchArray(['status' => 'waiting', 'maxPlayers' => 2, 'playerCount' => 1, 'mySeat' => 0]);
 });
 
 // ------------------------------------------------------------------ //
 // Room settings validation
 // ------------------------------------------------------------------ //
 
+it('rejects snake_case fields, 3-player rooms and targets the client cannot pick', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->postJson('/api/rooms', ['max_players' => 2])
+        ->assertStatus(422)->assertJsonValidationErrors('maxPlayers');
+    $this->actingAs($user)->postJson('/api/rooms', ['maxPlayers' => 3])
+        ->assertStatus(422)->assertJsonValidationErrors('maxPlayers');
+    $this->actingAs($user)->postJson('/api/rooms', ['maxPlayers' => 2, 'settings' => ['target' => 120]])
+        ->assertStatus(422)->assertJsonValidationErrors('settings.target');
+});
+
 it('validates room settings', function () {
     $user = User::factory()->create();
 
-    $this->actingAs($user)->postJson('/api/rooms', ['max_players' => 5])->assertStatus(422);
-    $this->actingAs($user)->postJson('/api/rooms', ['max_players' => 4, 'settings' => ['blockedTiebreak' => 'last']])->assertStatus(422);
-    $this->actingAs($user)->postJson('/api/rooms', ['max_players' => 4, 'settings' => ['turnTimer' => 999]])->assertStatus(422);
+    $this->actingAs($user)->postJson('/api/rooms', ['maxPlayers' => 5])->assertStatus(422);
+    $this->actingAs($user)->postJson('/api/rooms', ['maxPlayers' => 4, 'settings' => ['blockedTiebreak' => 'last']])->assertStatus(422);
+    $this->actingAs($user)->postJson('/api/rooms', ['maxPlayers' => 4, 'settings' => ['turnTimer' => 999]])->assertStatus(422);
     $this->actingAs($user)->postJson('/api/rooms', [
-        'max_players' => 4,
+        'maxPlayers' => 4,
         'settings' => ['blockedTiebreak' => 'low-player', 'hintCalls' => true, 'teams' => true, 'target' => 150],
     ])->assertCreated();
 });
@@ -191,7 +212,7 @@ it('accepts a hint call through the play endpoint and returns the updated view',
     $tile = collect($match->round->hands[$seat])->first(fn ($t) => $t->a === $m['a'] && $t->b === $m['b']);
 
     $view = $this->actingAs($users[$seat])->postJson("/api/rooms/{$room->id}/play", [
-        'tile_id' => $tile->id, 'side' => 'start', 'call' => 'hug_it',
+        'tileId' => $tile->id, 'side' => 'start', 'call' => 'hug_it',
     ])->assertOk()->json();
 
     expect($view['history'][0]['call'])->toBe('hug_it')
@@ -204,7 +225,7 @@ it('rejects an unknown hint call value', function () {
     $seat = MatchState::fromArray($room->match_state)->round->currentPlayer;
 
     $this->actingAs($users[$seat])->postJson("/api/rooms/{$room->id}/play", [
-        'tile_id' => 0, 'side' => 'start', 'call' => 'shout',
+        'tileId' => 0, 'side' => 'start', 'call' => 'shout',
     ])->assertStatus(422)->assertJsonValidationErrors('call');
 });
 

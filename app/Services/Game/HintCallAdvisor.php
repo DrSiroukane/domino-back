@@ -100,7 +100,7 @@ final class HintCallAdvisor
     /**
      * Scores a legal move using the calls and passes so far this round. Higher is better; 0 = no information.
      */
-    public static function scoreMove(RoundState $state, int $player, Tile $tile, string $side): int
+    public static function callScore(RoundState $state, int $player, Tile $tile, string $side): int
     {
         $n = GameEngine::exposedNumber($state, $tile, $side);
         $partner = ($player + 2) % 4;

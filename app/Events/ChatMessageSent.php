@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Events;
 
+use App\Broadcasting\Channels;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
@@ -28,7 +29,7 @@ final class ChatMessageSent implements ShouldBroadcastNow
     /** @return array<int, PresenceChannel> */
     public function broadcastOn(): array
     {
-        return [new PresenceChannel("room.{$this->roomId}")];
+        return [new PresenceChannel(Channels::room($this->roomId))];
     }
 
     public function broadcastAs(): string

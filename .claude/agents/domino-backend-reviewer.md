@@ -22,6 +22,8 @@ Read these in full before looking at the change:
 
 - `docs/CONVENTIONS.md` — the conventions. Every finding cites a section.
 - `CLAUDE.md` — the architecture: canonical `match_state`, redaction, Reverb.
+- `docs/CONTRACT.md` — the agreement with domino-front: words, endpoints,
+  JSON casing, error codes, channels, events, the shared game model.
 - `tests/Unit/ArchTest.php` — the rules already machine-checked, so you don't
   repeat them by hand.
 
@@ -65,10 +67,14 @@ Go through every changed line against `docs/CONVENTIONS.md`. In particular:
 5. **Validation and trust** (§4): every input validated in a form request with
    array rules (`Rule::enum`, `Rule::in`); every move re-checked against the
    stored state; ids from the URL checked against the user's seat.
-6. **API shape** (§4): success through a resource or `toArray()`; errors as
-   `{message, code}` with the right status (422 / 403 / 404 / 503); messages as
-   full sentences; a changed response shape is a breaking change for
-   domino-front — say so.
+6. **API shape and contract** (§4, CONTRACT.md): success through a resource
+   or `toArray()`; camelCase JSON both ways; errors as `{message, code}` with the
+   right status and a code listed in CONTRACT.md §4; channel names from
+   `App\Broadcasting\Channels`; the words of CONTRACT.md §1. Any change to an
+   endpoint, field, code, channel, event or shared game rule must also update
+   CONTRACT.md and the matching domino-front code (`lib/api.ts`,
+   `lib/channels.ts`, `types/domino.ts`, `lib/engine.ts`) — if the frontend
+   side is missing, that is a must fix.
 7. **PHP and naming** (§2, §3): types on everything, PHPDoc array shapes,
    `final`/`readonly` per the rules, named arguments for long constructors,
    `match` over `switch`, role suffixes, `camelCase`/`snake_case` per context,

@@ -290,7 +290,7 @@ it('rejects a play when the room is not playing', function () {
     $room->seatPlayer($user);
 
     $response = $this->actingAs($user)
-        ->postJson("/api/rooms/{$room->id}/play", ['tile_id' => 0, 'side' => 'start']);
+        ->postJson("/api/rooms/{$room->id}/play", ['tileId' => 0, 'side' => 'start']);
 
     $response->assertStatus(422)->assertJson(['message' => 'The game is not in progress.', 'code' => 'game_not_in_progress']);
 });
@@ -300,7 +300,7 @@ it('rejects a play from someone not seated', function () {
     $room = makeRoom();
 
     $response = $this->actingAs($user)
-        ->postJson("/api/rooms/{$room->id}/play", ['tile_id' => 0, 'side' => 'start']);
+        ->postJson("/api/rooms/{$room->id}/play", ['tileId' => 0, 'side' => 'start']);
 
     $response->assertStatus(403)->assertJson(['message' => 'You are not seated in this room.', 'code' => 'not_seated']);
 });
@@ -322,7 +322,7 @@ it('returns the client view after a successful play', function () {
         // User is seat 0 but not the current player; expect not-your-turn 422
         $hand = $match->round->hands[0][0];
         $response = $this->actingAs($user)
-            ->postJson("/api/rooms/{$room->id}/play", ['tile_id' => $hand->id, 'side' => 'start']);
+            ->postJson("/api/rooms/{$room->id}/play", ['tileId' => $hand->id, 'side' => 'start']);
         $response->assertStatus(422)->assertJson(['code' => 'not_your_turn']);
 
         return;
@@ -342,7 +342,7 @@ it('returns the client view after a successful play', function () {
 
     $response = $this->actingAs($user)
         ->postJson("/api/rooms/{$room->id}/play", [
-            'tile_id' => $tile->id,
+            'tileId' => $tile->id,
             'side' => 'start',
         ]);
 

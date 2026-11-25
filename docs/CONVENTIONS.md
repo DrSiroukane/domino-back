@@ -69,15 +69,18 @@ rules → model → resource / broadcast**. Each layer has one job.
   (`GameStateUpdated`, `ChatMessageSent`). Services are named for what they do,
   with no `Service` suffix: `GameEngine`, `Redactor`, `TurnTimer`,
   `MatchFinalizer`, `PresenceChecker`.
-- Methods and variables `camelCase`; DB columns and JSON request fields
-  `snake_case` (`max_players`, `tile_id`); game-state JSON keys `camelCase`
-  (they mirror the frontend's TypeScript types).
+- Methods and variables `camelCase`; DB columns `snake_case`; JSON keys
+  `camelCase` in both directions (`maxPlayers`, `tileId`, `mySeat`) — resources
+  and form requests translate at the edge (docs/CONTRACT.md §2).
+- The words for the game's ideas (room, match, round, seat, call…) are the ones
+  in docs/CONTRACT.md §1, on both sides.
 - Model methods: relations as nouns (`players()`), questions as `isX()`/`hasX()`,
   lookups as plain nouns or `findX()` — not `getX()` (`seatNames()`, not
   `getSeatNames()`).
 - Broadcast names `domain.event` (`game.state`, `chat.message`, `test.ping`);
-  channels `room.{roomId}` (presence) and `room.{roomId}.seat.{seatIndex}`
-  (private).
+  channel names and their authorization patterns come from
+  `App\Broadcasting\Channels` (`room.{roomId}`, `room.{roomId}.seat.{seat}`),
+  never written by hand.
 - Booleans read as questions: `$matchOver`, `$isBot`, `$hasCall`.
 
 ## 4. HTTP API
@@ -98,6 +101,9 @@ rules → model → resource / broadcast**. Each layer has one job.
   hand. Validation errors keep Laravel's `{"message", "errors"}` shape.
 - Messages are full sentences in plain English ending with a full stop:
   "It is not your turn."
+- The API is a contract with domino-front: every endpoint, field, error code,
+  channel and event is listed in `docs/CONTRACT.md`. Changing one changes both
+  repositories in the same change set (CONTRACT.md §7).
 
 ## 5. Database and concurrency
 
