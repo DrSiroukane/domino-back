@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Game;
-
 use App\Services\Game\Data\BoardEntryPlayed;
 use App\Services\Game\Data\BoardEntryStart;
 use App\Services\Game\Data\MatchConfig;
@@ -16,447 +14,379 @@ use App\Services\Game\Enums\BlockedTiebreak;
 use App\Services\Game\Enums\Difficulty;
 use App\Services\Game\Enums\Opponents;
 use App\Services\Game\GameEngine;
-use Tests\TestCase;
 
-class GameEngineTest extends TestCase
+function engineConfig(
+    int $numPlayers = 2,
+    bool $teams = false,
+    int $target = 100,
+    string $tiebreak = 'sum',
+): MatchConfig {
+    return new MatchConfig(
+        numPlayers: $numPlayers,
+        teams: $teams,
+        opponents: Opponents::Hotseat,
+        difficulty: Difficulty::Easy,
+        target: $target,
+        blockedTiebreak: BlockedTiebreak::from($tiebreak),
+    );
+}
+
+/** A fresh first-round RoundState from the real engine (two players by default). */
+function engineRound(int $numPlayers = 2, bool $teams = false): RoundState
 {
-    // ------------------------------------------------------------------ //
-    // Helpers
-    // ------------------------------------------------------------------ //
+    return GameEngine::initRound(engineConfig($numPlayers, $teams));
+}
 
-    private function makeConfig(
-        int $numPlayers = 2,
-        bool $teams = false,
-        int $target = 100,
-        string $tiebreak = 'sum',
-    ): MatchConfig {
-        return new MatchConfig(
-            numPlayers: $numPlayers,
-            teams: $teams,
-            opponents: Opponents::Hotseat,
-            difficulty: Difficulty::Easy,
-            target: $target,
-            blockedTiebreak: BlockedTiebreak::from($tiebreak),
-        );
-    }
+/** Builds a tile by (a, b). id is a+b*10 for uniqueness in tests. */
+function engineTile(int $a, int $b): Tile
+{
+    return new Tile($a, $b, $a + $b * 10);
+}
 
-    /** Returns a minimal RoundState with two players, empty board. */
-    private function makeRound(int $numPlayers = 2, bool $teams = false): RoundState
-    {
-        return GameEngine::initRound($this->makeConfig($numPlayers, $teams));
-    }
-
-    /** Builds a tile by (a, b). id is a+b*10 for uniqueness in tests. */
-    private function t(int $a, int $b): Tile
-    {
-        return new Tile($a, $b, $a + $b * 10);
-    }
-
-    // ------------------------------------------------------------------ //
-    // makeFullSet
-    // ------------------------------------------------------------------ //
-
-    public function test_make_full_set_returns_28_tiles(): void
-    {
+describe('makeFullSet', function () {
+    it('returns 28 tiles', function () {
         $set = GameEngine::makeFullSet();
-        $this->assertCount(28, $set);
-    }
+        expect($set)->toHaveCount(28);
+    });
 
-    public function test_make_full_set_ids_are_sequential_0_to_27(): void
-    {
+    it('numbers the tiles 0 to 27 in order', function () {
         $set = GameEngine::makeFullSet();
         $ids = array_map(fn (Tile $t) => $t->id, $set);
-        $this->assertSame(range(0, 27), $ids);
-    }
+        expect($ids)->toBe(range(0, 27));
+    });
 
-    public function test_make_full_set_contains_all_unique_pip_pairs(): void
-    {
+    it('contains all unique pip pairs', function () {
         $set = GameEngine::makeFullSet();
         $pairs = array_map(fn (Tile $t) => "{$t->a}-{$t->b}", $set);
-        $this->assertCount(28, array_unique($pairs));
-    }
+        expect(array_unique($pairs))->toHaveCount(28);
+    });
 
-    public function test_make_full_set_all_tiles_a_le_b(): void
-    {
+    it('puts the lower pip in a on every tile', function () {
         foreach (GameEngine::makeFullSet() as $t) {
-            $this->assertLessThanOrEqual($t->b, $t->a);
+            expect($t->a)->toBeLessThanOrEqual($t->b);
         }
-    }
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // Tile helpers
-    // ------------------------------------------------------------------ //
+describe('Tile helpers', function () {
+    it('treats a tile with equal pips as a double', function () {
+        expect(GameEngine::isDouble(new Tile(3, 3, 0)))->toBeTrue();
+        expect(GameEngine::isDouble(new Tile(0, 0, 0)))->toBeTrue();
+        expect(GameEngine::isDouble(new Tile(6, 6, 0)))->toBeTrue();
+    });
 
-    public function test_is_double_true_for_same_pips(): void
-    {
-        $this->assertTrue(GameEngine::isDouble(new Tile(3, 3, 0)));
-        $this->assertTrue(GameEngine::isDouble(new Tile(0, 0, 0)));
-        $this->assertTrue(GameEngine::isDouble(new Tile(6, 6, 0)));
-    }
+    it('does not treat a tile with different pips as a double', function () {
+        expect(GameEngine::isDouble(new Tile(2, 3, 0)))->toBeFalse();
+        expect(GameEngine::isDouble(new Tile(0, 6, 0)))->toBeFalse();
+    });
 
-    public function test_is_double_false_for_different_pips(): void
-    {
-        $this->assertFalse(GameEngine::isDouble(new Tile(2, 3, 0)));
-        $this->assertFalse(GameEngine::isDouble(new Tile(0, 6, 0)));
-    }
+    it('counts a tile\'s pips as the sum of both halves', function () {
+        expect(GameEngine::tilePips(new Tile(2, 3, 0)))->toBe(5);
+        expect(GameEngine::tilePips(new Tile(6, 6, 0)))->toBe(12);
+        expect(GameEngine::tilePips(new Tile(0, 0, 0)))->toBe(0);
+    });
 
-    public function test_tile_pips_returns_sum(): void
-    {
-        $this->assertSame(5, GameEngine::tilePips(new Tile(2, 3, 0)));
-        $this->assertSame(12, GameEngine::tilePips(new Tile(6, 6, 0)));
-        $this->assertSame(0, GameEngine::tilePips(new Tile(0, 0, 0)));
-    }
-
-    public function test_tile_has_returns_true_when_value_matches_a_or_b(): void
-    {
+    it('finds a number on either half of a tile', function () {
         $t = new Tile(3, 5, 0);
-        $this->assertTrue(GameEngine::tileHas($t, 3));
-        $this->assertTrue(GameEngine::tileHas($t, 5));
-        $this->assertFalse(GameEngine::tileHas($t, 4));
-    }
+        expect(GameEngine::tileHas($t, 3))->toBeTrue();
+        expect(GameEngine::tileHas($t, 5))->toBeTrue();
+        expect(GameEngine::tileHas($t, 4))->toBeFalse();
+    });
 
-    public function test_hand_pips_sums_all_tile_pips(): void
-    {
+    it('sums the pips of every tile in a hand', function () {
         $hand = [new Tile(1, 2, 0), new Tile(3, 4, 0), new Tile(0, 0, 0)];
-        $this->assertSame(10, GameEngine::handPips($hand));
-    }
+        expect(GameEngine::handPips($hand))->toBe(10);
+    });
 
-    public function test_hand_pips_empty_hand_is_zero(): void
-    {
-        $this->assertSame(0, GameEngine::handPips([]));
-    }
+    it('counts an empty hand as zero pips', function () {
+        expect(GameEngine::handPips([]))->toBe(0);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // handIsValid
-    // ------------------------------------------------------------------ //
-
-    public function test_hand_is_valid_accepts_normal_hand(): void
-    {
+describe('handIsValid', function () {
+    it('accepts a normal hand', function () {
         $hand = [
             new Tile(0, 1, 0), new Tile(1, 2, 0), new Tile(2, 3, 0),
             new Tile(3, 4, 0), new Tile(4, 5, 0), new Tile(5, 6, 0),
             new Tile(0, 6, 0),
         ];
-        $this->assertTrue(GameEngine::handIsValid($hand));
-    }
+        expect(GameEngine::handIsValid($hand))->toBeTrue();
+    });
 
-    public function test_hand_is_valid_rejects_five_or_more_doubles(): void
-    {
+    it('rejects a hand with five or more doubles', function () {
         $hand = [
             new Tile(0, 0, 0), new Tile(1, 1, 1), new Tile(2, 2, 2),
             new Tile(3, 3, 3), new Tile(4, 4, 4),
             new Tile(0, 1, 5), new Tile(1, 2, 6),
         ];
-        $this->assertFalse(GameEngine::handIsValid($hand));
-    }
+        expect(GameEngine::handIsValid($hand))->toBeFalse();
+    });
 
-    public function test_hand_is_valid_rejects_six_or_more_tiles_of_same_suit(): void
-    {
+    it('rejects a hand with six or more tiles of one suit', function () {
         // Suit 1 appears 6 times (1 counts in a non-double tile)
         $hand = [
             new Tile(1, 0, 0), new Tile(1, 2, 1), new Tile(1, 3, 2),
             new Tile(1, 4, 3), new Tile(1, 5, 4), new Tile(1, 6, 5),
             new Tile(0, 0, 6),
         ];
-        $this->assertFalse(GameEngine::handIsValid($hand));
-    }
+        expect(GameEngine::handIsValid($hand))->toBeFalse();
+    });
 
-    public function test_hand_is_valid_four_doubles_is_valid(): void
-    {
+    it('accepts a hand with four doubles', function () {
         $hand = [
             new Tile(0, 0, 0), new Tile(1, 1, 1), new Tile(2, 2, 2),
             new Tile(3, 3, 3),
             new Tile(0, 1, 4), new Tile(2, 4, 5), new Tile(5, 6, 6),
         ];
-        $this->assertTrue(GameEngine::handIsValid($hand));
-    }
+        expect(GameEngine::handIsValid($hand))->toBeTrue();
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // shuffle
-    // ------------------------------------------------------------------ //
-
-    public function test_shuffle_returns_same_length(): void
-    {
+describe('shuffle', function () {
+    it('returns as many tiles as it was given', function () {
         $set = GameEngine::makeFullSet();
         $shuffled = GameEngine::shuffle($set);
-        $this->assertCount(28, $shuffled);
-    }
+        expect($shuffled)->toHaveCount(28);
+    });
 
-    public function test_shuffle_contains_same_elements(): void
-    {
+    it('keeps the same tiles', function () {
         $set = GameEngine::makeFullSet();
         $shuffled = GameEngine::shuffle($set);
         $origIds = array_map(fn (Tile $t) => $t->id, $set);
         $shufIds = array_map(fn (Tile $t) => $t->id, $shuffled);
         sort($origIds);
         sort($shufIds);
-        $this->assertSame($origIds, $shufIds);
-    }
+        expect($shufIds)->toBe($origIds);
+    });
 
-    public function test_shuffle_does_not_modify_original(): void
-    {
+    it('does not modify original', function () {
         $set = GameEngine::makeFullSet();
         $first = $set[0]->id;
         GameEngine::shuffle($set);
-        $this->assertSame($first, $set[0]->id);
-    }
+        expect($set[0]->id)->toBe($first);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // deal
-    // ------------------------------------------------------------------ //
-
-    public function test_deal_two_players_gives_correct_sizes(): void
-    {
+describe('deal', function () {
+    it('deals seven tiles each and leaves fourteen in the boneyard for two players', function () {
         ['hands' => $hands, 'boneyard' => $boneyard] = GameEngine::deal(2);
-        $this->assertCount(2, $hands);
-        $this->assertCount(7, $hands[0]);
-        $this->assertCount(7, $hands[1]);
-        $this->assertCount(14, $boneyard);
-    }
+        expect($hands)->toHaveCount(2);
+        expect($hands[0])->toHaveCount(7);
+        expect($hands[1])->toHaveCount(7);
+        expect($boneyard)->toHaveCount(14);
+    });
 
-    public function test_deal_four_players_gives_correct_sizes(): void
-    {
+    it('deals seven tiles each and leaves no boneyard for four players', function () {
         ['hands' => $hands, 'boneyard' => $boneyard] = GameEngine::deal(4);
-        $this->assertCount(4, $hands);
+        expect($hands)->toHaveCount(4);
         foreach ($hands as $hand) {
-            $this->assertCount(7, $hand);
+            expect($hand)->toHaveCount(7);
         }
-        $this->assertCount(0, $boneyard);
-    }
+        expect($boneyard)->toHaveCount(0);
+    });
 
-    public function test_deal_all_28_tiles_accounted_for(): void
-    {
+    it('deals every one of the 28 tiles', function () {
         ['hands' => $hands, 'boneyard' => $boneyard] = GameEngine::deal(2);
         $all = array_merge(array_merge(...$hands), $boneyard);
         $ids = array_map(fn (Tile $t) => $t->id, $all);
         sort($ids);
-        $this->assertSame(range(0, 27), $ids);
-    }
+        expect($ids)->toBe(range(0, 27));
+    });
 
-    public function test_deal_no_duplicate_tiles(): void
-    {
+    it('deals no tile twice', function () {
         ['hands' => $hands, 'boneyard' => $boneyard] = GameEngine::deal(4);
         $all = array_merge(array_merge(...$hands), $boneyard);
         $ids = array_map(fn (Tile $t) => $t->id, $all);
-        $this->assertCount(28, array_unique($ids));
-    }
+        expect(array_unique($ids))->toHaveCount(28);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // findHighestDoubleStarter
-    // ------------------------------------------------------------------ //
-
-    public function test_find_highest_double_starter_returns_double_6_6(): void
-    {
+describe('findHighestDoubleStarter', function () {
+    it('picks the holder of the 6-6', function () {
         $hands = [
             [new Tile(0, 1, 0), new Tile(2, 3, 1)],
             [new Tile(6, 6, 27), new Tile(0, 0, 2)],
         ];
         $result = GameEngine::findHighestDoubleStarter($hands);
-        $this->assertSame(1, $result['player']);
-        $this->assertSame(['a' => 6, 'b' => 6], $result['tile']);
-    }
+        expect($result['player'])->toBe(1);
+        expect($result['tile'])->toBe(['a' => 6, 'b' => 6]);
+    });
 
-    public function test_find_highest_double_starter_prefers_higher_double(): void
-    {
+    it('prefers higher double', function () {
         $hands = [
             [new Tile(5, 5, 20)],
             [new Tile(4, 4, 14)],
         ];
         $result = GameEngine::findHighestDoubleStarter($hands);
-        $this->assertSame(0, $result['player']);
-        $this->assertSame(['a' => 5, 'b' => 5], $result['tile']);
-    }
+        expect($result['player'])->toBe(0);
+        expect($result['tile'])->toBe(['a' => 5, 'b' => 5]);
+    });
 
-    public function test_find_highest_double_starter_falls_back_to_highest_pips(): void
-    {
+    it('falls back to highest pips', function () {
         // No doubles — hand 1 has 6+5=11, hand 0 has 3+4=7
         $hands = [
             [new Tile(3, 4, 0)],
             [new Tile(5, 6, 1)],
         ];
         $result = GameEngine::findHighestDoubleStarter($hands);
-        $this->assertSame(1, $result['player']);
-    }
+        expect($result['player'])->toBe(1);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // initRound
-    // ------------------------------------------------------------------ //
-
-    public function test_init_round_creates_correct_structure(): void
-    {
-        $config = $this->makeConfig(2);
+describe('initRound', function () {
+    it('deals a round with an empty board and no passes', function () {
+        $config = engineConfig(2);
         $round = GameEngine::initRound($config);
 
-        $this->assertCount(2, $round->hands);
-        $this->assertCount(7, $round->hands[0]);
-        $this->assertCount(7, $round->hands[1]);
-        $this->assertCount(14, $round->boneyard);
-        $this->assertCount(0, $round->board);
-        $this->assertNull($round->leftEnd);
-        $this->assertNull($round->rightEnd);
-        $this->assertSame(0, $round->passes);
-        $this->assertFalse($round->roundOver);
-        $this->assertNull($round->roundResult);
-    }
+        expect($round->hands)->toHaveCount(2);
+        expect($round->hands[0])->toHaveCount(7);
+        expect($round->hands[1])->toHaveCount(7);
+        expect($round->boneyard)->toHaveCount(14);
+        expect($round->board)->toHaveCount(0);
+        expect($round->leftEnd)->toBeNull();
+        expect($round->rightEnd)->toBeNull();
+        expect($round->passes)->toBe(0);
+        expect($round->roundOver)->toBeFalse();
+        expect($round->roundResult)->toBeNull();
+    });
 
-    public function test_init_round_last_winner_sets_first_mover_and_no_mandatory_tile(): void
-    {
-        $config = $this->makeConfig(2);
+    it('lets the last winner open, with no opening double', function () {
+        $config = engineConfig(2);
         $round = GameEngine::initRound($config, 1);
 
-        $this->assertSame(1, $round->firstMover);
-        $this->assertSame(1, $round->currentPlayer);
-        $this->assertNull($round->mandatoryFirstTile);
-    }
+        expect($round->firstMover)->toBe(1);
+        expect($round->currentPlayer)->toBe(1);
+        expect($round->openingDouble)->toBeNull();
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // initMatch
-    // ------------------------------------------------------------------ //
-
-    public function test_init_match_creates_correct_initial_state(): void
-    {
-        $config = $this->makeConfig(2);
+describe('initMatch', function () {
+    it('starts a match with zero scores and no rounds played', function () {
+        $config = engineConfig(2);
         $match = GameEngine::initMatch($config);
 
-        $this->assertSame([0, 0], $match->scores);
-        $this->assertFalse($match->matchOver);
-        $this->assertNull($match->matchWinner);
-        $this->assertSame(0, $match->roundsPlayed);
-    }
+        expect($match->scores)->toBe([0, 0]);
+        expect($match->matchOver)->toBeFalse();
+        expect($match->matchWinner)->toBeNull();
+        expect($match->roundsPlayed)->toBe(0);
+    });
 
-    public function test_init_match_teams_creates_two_scores(): void
-    {
-        $config = $this->makeConfig(4, true);
+    it('keeps one score per team in a teams match', function () {
+        $config = engineConfig(4, true);
         $match = GameEngine::initMatch($config);
-        $this->assertCount(2, $match->scores);
-    }
+        expect($match->scores)->toHaveCount(2);
+    });
 
-    public function test_init_match_individual_creates_one_score_per_player(): void
-    {
-        $config = $this->makeConfig(4, false);
+    it('keeps one score per player in an individual match', function () {
+        $config = engineConfig(4, false);
         $match = GameEngine::initMatch($config);
-        $this->assertCount(4, $match->scores);
-    }
+        expect($match->scores)->toHaveCount(4);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // legalSidesForTile
-    // ------------------------------------------------------------------ //
+describe('legalSidesForTile', function () {
+    it('allows only the start on an empty board', function () {
+        $round = engineRound();
+        $tile = engineTile(3, 5);
+        expect(GameEngine::legalSidesForTile($round, $tile))->toBe(['start']);
+    });
 
-    public function test_legal_sides_for_tile_empty_board_returns_start(): void
-    {
-        $round = $this->makeRound();
-        $tile = $this->t(3, 5);
-        $this->assertSame(['start'], GameEngine::legalSidesForTile($round, $tile));
-    }
-
-    public function test_legal_sides_for_tile_non_matching_returns_empty(): void
-    {
-        $round = clone $this->makeRound();
-        $round->board = [new BoardEntryStart($this->t(2, 4), 2, 4)];
+    it('allows no side for a tile that matches neither end', function () {
+        $round = clone engineRound();
+        $round->board = [new BoardEntryStart(engineTile(2, 4), 2, 4)];
         $round->leftEnd = 2;
         $round->rightEnd = 4;
 
-        $this->assertSame([], GameEngine::legalSidesForTile($round, $this->t(0, 1)));
-    }
+        expect(GameEngine::legalSidesForTile($round, engineTile(0, 1)))->toBe([]);
+    });
 
-    public function test_legal_sides_for_tile_matches_left_only(): void
-    {
-        $round = clone $this->makeRound();
-        $round->board = [new BoardEntryStart($this->t(2, 4), 2, 4)];
+    it('allows only the left for a tile that matches the left end', function () {
+        $round = clone engineRound();
+        $round->board = [new BoardEntryStart(engineTile(2, 4), 2, 4)];
         $round->leftEnd = 2;
         $round->rightEnd = 4;
 
-        $this->assertSame(['left'], GameEngine::legalSidesForTile($round, $this->t(1, 2)));
-    }
+        expect(GameEngine::legalSidesForTile($round, engineTile(1, 2)))->toBe(['left']);
+    });
 
-    public function test_legal_sides_for_tile_matches_right_only(): void
-    {
-        $round = clone $this->makeRound();
-        $round->board = [new BoardEntryStart($this->t(2, 4), 2, 4)];
+    it('allows only the right for a tile that matches the right end', function () {
+        $round = clone engineRound();
+        $round->board = [new BoardEntryStart(engineTile(2, 4), 2, 4)];
         $round->leftEnd = 2;
         $round->rightEnd = 4;
 
-        $this->assertSame(['right'], GameEngine::legalSidesForTile($round, $this->t(4, 6)));
-    }
+        expect(GameEngine::legalSidesForTile($round, engineTile(4, 6)))->toBe(['right']);
+    });
 
-    public function test_legal_sides_for_tile_matches_both_sides(): void
-    {
-        $round = clone $this->makeRound();
-        $round->board = [new BoardEntryStart($this->t(3, 3), 3, 3)];
+    it('allows both sides when the tile matches both ends', function () {
+        $round = clone engineRound();
+        $round->board = [new BoardEntryStart(engineTile(3, 3), 3, 3)];
         $round->leftEnd = 3;
         $round->rightEnd = 3;
 
-        $sides = GameEngine::legalSidesForTile($round, $this->t(3, 5));
-        $this->assertContains('left', $sides);
-        $this->assertContains('right', $sides);
-        $this->assertCount(2, $sides);
-    }
+        $sides = GameEngine::legalSidesForTile($round, engineTile(3, 5));
+        expect($sides)->toContain('left');
+        expect($sides)->toContain('right');
+        expect($sides)->toHaveCount(2);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // canPlayAnyTile
-    // ------------------------------------------------------------------ //
-
-    public function test_can_play_any_tile_true_when_hand_has_matching_tile(): void
-    {
-        $round = clone $this->makeRound();
-        $round->board = [new BoardEntryStart($this->t(3, 5), 3, 5)];
+describe('canPlayAnyTile', function () {
+    it('finds a play when the hand holds a matching tile', function () {
+        $round = clone engineRound();
+        $round->board = [new BoardEntryStart(engineTile(3, 5), 3, 5)];
         $round->leftEnd = 3;
         $round->rightEnd = 5;
 
-        $hand = [$this->t(0, 1), $this->t(5, 6)];
-        $this->assertTrue(GameEngine::canPlayAnyTile($round, $hand));
-    }
+        $hand = [engineTile(0, 1), engineTile(5, 6)];
+        expect(GameEngine::canPlayAnyTile($round, $hand))->toBeTrue();
+    });
 
-    public function test_can_play_any_tile_false_when_no_match(): void
-    {
-        $round = clone $this->makeRound();
-        $round->board = [new BoardEntryStart($this->t(3, 5), 3, 5)];
+    it('finds no play when no tile matches either end', function () {
+        $round = clone engineRound();
+        $round->board = [new BoardEntryStart(engineTile(3, 5), 3, 5)];
         $round->leftEnd = 3;
         $round->rightEnd = 5;
 
-        $hand = [$this->t(0, 1), $this->t(1, 2)];
-        $this->assertFalse(GameEngine::canPlayAnyTile($round, $hand));
-    }
+        $hand = [engineTile(0, 1), engineTile(1, 2)];
+        expect(GameEngine::canPlayAnyTile($round, $hand))->toBeFalse();
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // playTile — first tile on empty board
-    // ------------------------------------------------------------------ //
-
-    public function test_play_tile_places_first_tile_on_empty_board(): void
-    {
+describe('playTile', function () {
+    it('places first tile on empty board', function () {
         $tile = new Tile(3, 5, 99);
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->hands = [[$tile], [new Tile(0, 1, 1)]];
         $round->board = [];
 
         $result = GameEngine::playTile($round, 0, 99, 'start');
 
-        $this->assertCount(1, $result->board);
-        $this->assertInstanceOf(BoardEntryStart::class, $result->board[0]);
-        $this->assertSame(3, $result->leftEnd);
-        $this->assertSame(5, $result->rightEnd);
-        $this->assertNull($result->mandatoryFirstTile);
-        $this->assertSame(0, $result->passes);
-    }
+        expect($result->board)->toHaveCount(1);
+        expect($result->board[0])->toBeInstanceOf(BoardEntryStart::class);
+        expect($result->leftEnd)->toBe(3);
+        expect($result->rightEnd)->toBe(5);
+        // Any tile may open; the opening double stays public until it is played.
+        expect($result->openingDouble)->toBe($round->openingDouble);
+        expect($result->passes)->toBe(0);
+    });
 
-    public function test_play_tile_advances_current_player(): void
-    {
+    it('advances current player', function () {
         $tile = new Tile(2, 4, 50);
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->currentPlayer = 0;
         $round->hands = [[$tile], [new Tile(0, 1, 1)]];
         $round->board = [];
 
         $result = GameEngine::playTile($round, 0, 50, 'start');
-        $this->assertSame(1, $result->currentPlayer);
-    }
+        expect($result->currentPlayer)->toBe(1);
+    });
 
-    public function test_play_tile_left_updates_left_end(): void
-    {
+    it('moves the left end on a play to the left', function () {
         $first = new Tile(2, 4, 1);
         $second = new Tile(1, 2, 2);
 
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->board = [new BoardEntryStart($first, 2, 4)];
         $round->leftEnd = 2;
         $round->rightEnd = 4;
@@ -464,18 +394,17 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::playTile($round, 0, 2, 'left');
 
-        $this->assertSame(1, $result->leftEnd); // 1-2 played left, new exposed = 1
-        $this->assertSame(4, $result->rightEnd); // unchanged
-        $this->assertInstanceOf(BoardEntryPlayed::class, $result->board[0]);
-        $this->assertSame('left', $result->board[0]->side);
-    }
+        expect($result->leftEnd)->toBe(1); // 1-2 played left, new exposed = 1
+        expect($result->rightEnd)->toBe(4); // unchanged
+        expect($result->board[0])->toBeInstanceOf(BoardEntryPlayed::class);
+        expect($result->board[0]->side)->toBe('left');
+    });
 
-    public function test_play_tile_right_updates_right_end(): void
-    {
+    it('moves the right end on a play to the right', function () {
         $first = new Tile(2, 4, 1);
         $second = new Tile(4, 6, 2);
 
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->board = [new BoardEntryStart($first, 2, 4)];
         $round->leftEnd = 2;
         $round->rightEnd = 4;
@@ -483,44 +412,41 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::playTile($round, 0, 2, 'right');
 
-        $this->assertSame(2, $result->leftEnd);  // unchanged
-        $this->assertSame(6, $result->rightEnd); // 4-6 played right, new exposed = 6
-    }
+        expect($result->leftEnd)->toBe(2);  // unchanged
+        expect($result->rightEnd)->toBe(6); // 4-6 played right, new exposed = 6
+    });
 
-    public function test_play_tile_removes_tile_from_hand(): void
-    {
+    it('removes tile from hand', function () {
         $tile = new Tile(2, 4, 10);
         $other = new Tile(0, 1, 11);
 
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->hands = [[$tile, $other], []];
         $round->board = [];
 
         $result = GameEngine::playTile($round, 0, 10, 'start');
 
-        $this->assertCount(1, $result->hands[0]);
-        $this->assertSame(11, $result->hands[0][0]->id);
-    }
+        expect($result->hands[0])->toHaveCount(1);
+        expect($result->hands[0][0]->id)->toBe(11);
+    });
 
-    public function test_play_tile_records_history_entry(): void
-    {
+    it('records history entry', function () {
         $tile = new Tile(3, 3, 5);
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->hands = [[$tile], []];
         $round->board = [];
 
         $result = GameEngine::playTile($round, 0, 5, 'start');
 
-        $this->assertCount(1, $result->history);
-        $this->assertSame('play', $result->history[0]->action);
-        $this->assertSame(0, $result->history[0]->player);
-        $this->assertSame('start', $result->history[0]->side);
-    }
+        expect($result->history)->toHaveCount(1);
+        expect($result->history[0]->action)->toBe('play');
+        expect($result->history[0]->player)->toBe(0);
+        expect($result->history[0]->side)->toBe('start');
+    });
 
-    public function test_play_tile_domino_sets_round_over(): void
-    {
+    it('ends the round with a domino when the last tile is played', function () {
         $tile = new Tile(3, 5, 99);
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->board = [new BoardEntryStart(new Tile(3, 4, 1), 3, 4)];
         $round->leftEnd = 3;
         $round->rightEnd = 4;
@@ -528,27 +454,25 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::playTile($round, 0, 99, 'left');
 
-        $this->assertTrue($result->roundOver);
-        $this->assertInstanceOf(RoundResultDomino::class, $result->roundResult);
-        $this->assertSame(0, $result->roundResult->winner);
-    }
+        expect($result->roundOver)->toBeTrue();
+        expect($result->roundResult)->toBeInstanceOf(RoundResultDomino::class);
+        expect($result->roundResult->winner)->toBe(0);
+    });
 
-    public function test_play_tile_resets_passes_counter(): void
-    {
+    it('resets passes counter', function () {
         $tile = new Tile(2, 4, 10);
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->passes = 1;
         $round->hands = [[$tile], []];
         $round->board = [];
 
         $result = GameEngine::playTile($round, 0, 10, 'start');
-        $this->assertSame(0, $result->passes);
-    }
+        expect($result->passes)->toBe(0);
+    });
 
-    public function test_play_tile_does_not_mutate_original_state(): void
-    {
+    it('does not mutate original state', function () {
         $tile = new Tile(2, 4, 10);
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->hands = [[$tile], []];
         $round->board = [];
 
@@ -557,20 +481,17 @@ class GameEngineTest extends TestCase
 
         GameEngine::playTile($round, 0, 10, 'start');
 
-        $this->assertCount($boardCountBefore, $round->board);
-        $this->assertCount($handCountBefore, $round->hands[0]);
-    }
+        expect($round->board)->toHaveCount($boardCountBefore);
+        expect($round->hands[0])->toHaveCount($handCountBefore);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // no capicúa bonus (rule removed)
-    // ------------------------------------------------------------------ //
-
-    public function test_play_tile_last_tile_fitting_both_ends_awards_only_hand_pips(): void
-    {
+describe('no capicúa bonus (rule removed)', function () {
+    it('scores only the hand pips when the last tile fits both ends', function () {
         // Board ends are both 3; the last tile 3-5 fits either end. This used
         // to add a capicúa bonus — now only the opponent's pips count.
         $tile = new Tile(3, 5, 99);
-        $round = clone $this->makeRound();
+        $round = clone engineRound();
         $round->board = [new BoardEntryStart(new Tile(3, 3, 1), 3, 3)];
         $round->leftEnd = 3;
         $round->rightEnd = 3;
@@ -578,129 +499,113 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::playTile($round, 0, 99, 'left');
 
-        $this->assertInstanceOf(RoundResultDomino::class, $result->roundResult);
-        $this->assertSame(1, $result->roundResult->points);
-        $this->assertArrayNotHasKey('capicua', $result->roundResult->toArray());
-    }
+        expect($result->roundResult)->toBeInstanceOf(RoundResultDomino::class);
+        expect($result->roundResult->points)->toBe(1);
+        expect($result->roundResult->toArray())->not->toHaveKey('capicua');
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // passTurn
-    // ------------------------------------------------------------------ //
-
-    public function test_pass_turn_increments_passes_and_advances_player(): void
-    {
-        $round = clone $this->makeRound(2);
+describe('passTurn', function () {
+    it('increments passes and advances player', function () {
+        $round = clone engineRound(2);
         $round->currentPlayer = 0;
 
         $result = GameEngine::passTurn($round, 0);
 
-        $this->assertSame(1, $result->passes);
-        $this->assertSame(1, $result->currentPlayer);
-    }
+        expect($result->passes)->toBe(1);
+        expect($result->currentPlayer)->toBe(1);
+    });
 
-    public function test_pass_turn_records_history_entry(): void
-    {
-        $round = clone $this->makeRound(2);
+    it('records history entry', function () {
+        $round = clone engineRound(2);
         $result = GameEngine::passTurn($round, 0);
 
-        $this->assertCount(1, $result->history);
-        $this->assertSame('pass', $result->history[0]->action);
-        $this->assertSame(0, $result->history[0]->player);
-    }
+        expect($result->history)->toHaveCount(1);
+        expect($result->history[0]->action)->toBe('pass');
+        expect($result->history[0]->player)->toBe(0);
+    });
 
-    public function test_pass_turn_all_players_triggers_blocked(): void
-    {
-        $round = clone $this->makeRound(2);
+    it('blocks the round when every player has passed', function () {
+        $round = clone engineRound(2);
         $round->passes = 1; // Player 0 already passed
 
         $result = GameEngine::passTurn($round, 1); // Player 1 passes → both passed
 
-        $this->assertTrue($result->roundOver);
-        $this->assertInstanceOf(RoundResultBlocked::class, $result->roundResult);
-    }
+        expect($result->roundOver)->toBeTrue();
+        expect($result->roundResult)->toBeInstanceOf(RoundResultBlocked::class);
+    });
 
-    public function test_pass_turn_does_not_mutate_original_state(): void
-    {
-        $round = clone $this->makeRound(2);
+    it('does not mutate original state', function () {
+        $round = clone engineRound(2);
         $originalPasses = $round->passes;
         GameEngine::passTurn($round, 0);
-        $this->assertSame($originalPasses, $round->passes);
-    }
+        expect($round->passes)->toBe($originalPasses);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // drawTile
-    // ------------------------------------------------------------------ //
-
-    public function test_draw_tile_adds_tile_to_hand_and_removes_from_boneyard(): void
-    {
+describe('drawTile', function () {
+    it('adds tile to hand and removes from boneyard', function () {
         $drawn = new Tile(5, 6, 20);
-        $round = clone $this->makeRound(2);
+        $round = clone engineRound(2);
         $round->boneyard = [$drawn];
         $round->hands = [[], []];
 
         $result = GameEngine::drawTile($round, 0);
 
-        $this->assertCount(1, $result->hands[0]);
-        $this->assertSame(20, $result->hands[0][0]->id);
-        $this->assertCount(0, $result->boneyard);
-    }
+        expect($result->hands[0])->toHaveCount(1);
+        expect($result->hands[0][0]->id)->toBe(20);
+        expect($result->boneyard)->toHaveCount(0);
+    });
 
-    public function test_draw_tile_records_history(): void
-    {
-        $round = clone $this->makeRound(2);
+    it('records history', function () {
+        $round = clone engineRound(2);
         $round->boneyard = [new Tile(1, 2, 5)];
         $round->hands = [[], []];
 
         $result = GameEngine::drawTile($round, 0);
 
-        $this->assertCount(1, $result->history);
-        $this->assertSame('draw', $result->history[0]->action);
-    }
+        expect($result->history)->toHaveCount(1);
+        expect($result->history[0]->action)->toBe('draw');
+    });
 
-    public function test_draw_tile_returns_same_state_when_boneyard_empty(): void
-    {
-        $round = clone $this->makeRound(2);
+    it('returns same state when boneyard empty', function () {
+        $round = clone engineRound(2);
         $round->boneyard = [];
 
         $result = GameEngine::drawTile($round, 0);
-        $this->assertSame($round, $result); // identical object reference
-    }
+        expect($result)->toBe($round); // identical object reference
+    });
 
-    public function test_draw_tile_does_not_mutate_original_state(): void
-    {
+    it('does not mutate original state', function () {
         $drawn = new Tile(5, 6, 20);
-        $round = clone $this->makeRound(2);
+        $round = clone engineRound(2);
         $round->boneyard = [$drawn];
         $round->hands = [[], []];
 
         GameEngine::drawTile($round, 0);
 
-        $this->assertCount(1, $round->boneyard);
-        $this->assertCount(0, $round->hands[0]);
-    }
+        expect($round->boneyard)->toHaveCount(1);
+        expect($round->hands[0])->toHaveCount(0);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // computeRoundResult — domino, individual
-    // ------------------------------------------------------------------ //
-
-    public function test_compute_round_result_domino_individual_sums_opponents(): void
-    {
-        $round = clone $this->makeRound(2);
+describe('computeRoundResult — domino, individual', function () {
+    it('scores the opponents\' pips for a domino in an individual game', function () {
+        $round = clone engineRound(2);
         $round->hands = [[], [new Tile(1, 2, 0), new Tile(3, 4, 1)]]; // winner=0, loser has 10 pips
         $round->numPlayers = 2;
         $round->teams = false;
 
         $result = GameEngine::computeRoundResult($round, 0, 'domino');
 
-        $this->assertInstanceOf(RoundResultDomino::class, $result);
-        $this->assertSame(0, $result->winner);
-        $this->assertSame(10, $result->points);
-    }
+        expect($result)->toBeInstanceOf(RoundResultDomino::class);
+        expect($result->winner)->toBe(0);
+        expect($result->points)->toBe(10);
+    });
 
-    public function test_compute_round_result_domino_teams_sums_opposing_team(): void
-    {
+    it('scores the opposing team\'s pips for a domino in a teams game', function () {
         // 4-player teams: players 0&2 vs 1&3. Player 0 dominoes.
-        $round = clone $this->makeRound(4, true);
+        $round = clone engineRound(4, true);
         $round->hands = [
             [],                              // winner (0) — empty
             [new Tile(1, 2, 1)],             // opponent team1 (3 pips)
@@ -712,18 +617,15 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::computeRoundResult($round, 0, 'domino');
 
-        $this->assertInstanceOf(RoundResultDomino::class, $result);
-        $this->assertSame(0, $result->winningTeam);
-        $this->assertSame(12, $result->points); // pips of players 1 and 3
-    }
+        expect($result)->toBeInstanceOf(RoundResultDomino::class);
+        expect($result->winningTeam)->toBe(0);
+        expect($result->points)->toBe(12); // pips of players 1 and 3
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // computeRoundResult — blocked, individual
-    // ------------------------------------------------------------------ //
-
-    public function test_compute_round_result_blocked_individual_min_hand_wins(): void
-    {
-        $round = clone $this->makeRound(2);
+describe('computeRoundResult — blocked, individual', function () {
+    it('gives a blocked individual round to the lightest hand', function () {
+        $round = clone engineRound(2);
         $round->hands = [
             [new Tile(0, 1, 0)],             // 1 pip
             [new Tile(3, 4, 1), new Tile(1, 2, 2)], // 10 pips
@@ -733,15 +635,14 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::computeRoundResult($round, null, 'blocked');
 
-        $this->assertInstanceOf(RoundResultBlocked::class, $result);
-        $this->assertSame(0, $result->winner);
-        $this->assertSame(10, $result->points);
-        $this->assertFalse($result->tied);
-    }
+        expect($result)->toBeInstanceOf(RoundResultBlocked::class);
+        expect($result->winner)->toBe(0);
+        expect($result->points)->toBe(10);
+        expect($result->tied)->toBeFalse();
+    });
 
-    public function test_compute_round_result_blocked_individual_tie(): void
-    {
-        $round = clone $this->makeRound(2);
+    it('scores nothing for a tied blocked individual round', function () {
+        $round = clone engineRound(2);
         $round->hands = [
             [new Tile(1, 2, 0)],  // 3 pips
             [new Tile(0, 3, 1)],  // 3 pips
@@ -751,18 +652,15 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::computeRoundResult($round, null, 'blocked');
 
-        $this->assertNull($result->winner);
-        $this->assertSame(0, $result->points);
-        $this->assertTrue($result->tied);
-    }
+        expect($result->winner)->toBeNull();
+        expect($result->points)->toBe(0);
+        expect($result->tied)->toBeTrue();
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // computeRoundResult — blocked, teams
-    // ------------------------------------------------------------------ //
-
-    public function test_compute_round_result_blocked_teams_sum_lower_wins(): void
-    {
-        $round = clone $this->makeRound(4, true);
+describe('computeRoundResult — blocked, teams', function () {
+    it('gives a blocked teams round to the team with fewer pips under sum', function () {
+        $round = clone engineRound(4, true);
         $round->hands = [
             [new Tile(1, 0, 0)],  // p0: 1 pip  (team0 total = 3)
             [new Tile(4, 5, 1)],  // p1: 9 pips (team1 total = 15)
@@ -774,14 +672,13 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::computeRoundResult($round, null, 'blocked', ['blockedTiebreak' => 'sum']);
 
-        $this->assertSame(0, $result->getWinningTeam()); // team0 has 3 < 15
-        $this->assertSame(15, $result->points);           // team1 total
-        $this->assertSame('sum', $result->tiebreak);
-    }
+        expect($result->getWinningTeam())->toBe(0); // team0 has 3 < 15
+        expect($result->points)->toBe(15);           // team1 total
+        expect($result->tiebreak)->toBe('sum');
+    });
 
-    public function test_compute_round_result_blocked_teams_sum_tie(): void
-    {
-        $round = clone $this->makeRound(4, true);
+    it('scores nothing when the team sums are tied', function () {
+        $round = clone engineRound(4, true);
         $round->hands = [
             [new Tile(1, 2, 0)],  // p0: 3  (team0 = 5)
             [new Tile(0, 1, 1)],  // p1: 1  (team1 = 5)
@@ -793,14 +690,13 @@ class GameEngineTest extends TestCase
 
         $result = GameEngine::computeRoundResult($round, null, 'blocked', ['blockedTiebreak' => 'sum']);
 
-        $this->assertNull($result->getWinningTeam());
-        $this->assertSame(0, $result->points);
-        $this->assertTrue($result->tied);
-    }
+        expect($result->getWinningTeam())->toBeNull();
+        expect($result->points)->toBe(0);
+        expect($result->tied)->toBeTrue();
+    });
 
-    public function test_compute_round_result_blocked_teams_low_player(): void
-    {
-        $round = clone $this->makeRound(4, true);
+    it('gives a blocked teams round to the lightest hand\'s team under low-player', function () {
+        $round = clone engineRound(4, true);
         $round->hands = [
             [new Tile(0, 1, 0)],  // p0: 1  ← team0 low player (idx 0)
             [new Tile(3, 4, 1)],  // p1: 7  ← team1 low player (idx 1)
@@ -813,18 +709,15 @@ class GameEngineTest extends TestCase
         $result = GameEngine::computeRoundResult($round, null, 'blocked', ['blockedTiebreak' => 'low-player']);
 
         // team0 min=1 < team1 min=7 → team0 wins
-        $this->assertSame(0, $result->getWinningTeam());
-        $this->assertSame(0, $result->lowPlayer);
-        $this->assertSame('low-player', $result->tiebreak);
-    }
+        expect($result->getWinningTeam())->toBe(0);
+        expect($result->lowPlayer)->toBe(0);
+        expect($result->tiebreak)->toBe('low-player');
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // applyRoundResult
-    // ------------------------------------------------------------------ //
-
-    public function test_apply_round_result_updates_scores(): void
-    {
-        $config = $this->makeConfig(2, false, 100);
+describe('applyRoundResult', function () {
+    it('updates scores', function () {
+        $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
 
         $match->round->roundResult = new RoundResultDomino(
@@ -833,15 +726,14 @@ class GameEngineTest extends TestCase
 
         $updated = GameEngine::applyRoundResult($match);
 
-        $this->assertSame(25, $updated->scores[0]);
-        $this->assertSame(0, $updated->scores[1]);
-        $this->assertSame(1, $updated->roundsPlayed);
-        $this->assertSame(0, $updated->lastWinner);
-    }
+        expect($updated->scores[0])->toBe(25);
+        expect($updated->scores[1])->toBe(0);
+        expect($updated->roundsPlayed)->toBe(1);
+        expect($updated->lastWinner)->toBe(0);
+    });
 
-    public function test_apply_round_result_reports_the_final_hands(): void
-    {
-        $config = $this->makeConfig(2, false, 100);
+    it('reports the final hands', function () {
+        $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
         $match->round->hands = [[], [new Tile(1, 2, 3), new Tile(0, 4, 4)]];
         $match->round->roundResult = new RoundResultDomino(winner: 0, points: 7, handTotals: [0, 7]);
@@ -849,16 +741,12 @@ class GameEngineTest extends TestCase
         $updated = GameEngine::applyRoundResult($match);
 
         // Shown beside each side's score on the round-over card; public once the round is over.
-        $this->assertSame(
-            [[], [['a' => 1, 'b' => 2, 'id' => 3], ['a' => 0, 'b' => 4, 'id' => 4]]],
-            $updated->lastRoundResult['finalHands'],
-        );
-        $this->assertSame([0, 0], $updated->lastRoundResult['previousScores']);
-    }
+        expect($updated->lastRoundResult['finalHands'])->toBe([[], [['a' => 1, 'b' => 2, 'id' => 3], ['a' => 0, 'b' => 4, 'id' => 4]]]);
+        expect($updated->lastRoundResult['previousScores'])->toBe([0, 0]);
+    });
 
-    public function test_apply_round_result_match_over_when_target_reached(): void
-    {
-        $config = $this->makeConfig(2, false, 100);
+    it('ends the match when a side reaches the target', function () {
+        $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
         $match->scores = [95, 0];
 
@@ -868,13 +756,12 @@ class GameEngineTest extends TestCase
 
         $updated = GameEngine::applyRoundResult($match);
 
-        $this->assertTrue($updated->matchOver);
-        $this->assertSame(0, $updated->matchWinner);
-    }
+        expect($updated->matchOver)->toBeTrue();
+        expect($updated->matchWinner)->toBe(0);
+    });
 
-    public function test_apply_round_result_not_over_below_target(): void
-    {
-        $config = $this->makeConfig(2, false, 100);
+    it('keeps the match going below the target', function () {
+        $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
 
         $match->round->roundResult = new RoundResultDomino(
@@ -883,13 +770,12 @@ class GameEngineTest extends TestCase
 
         $updated = GameEngine::applyRoundResult($match);
 
-        $this->assertFalse($updated->matchOver);
-        $this->assertNull($updated->matchWinner);
-    }
+        expect($updated->matchOver)->toBeFalse();
+        expect($updated->matchWinner)->toBeNull();
+    });
 
-    public function test_apply_round_result_tie_sets_first_mover_as_last_winner(): void
-    {
-        $config = $this->makeConfig(2, false, 100);
+    it('makes the round\'s first mover the last winner on a tie', function () {
+        $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
         $match->round->firstMover = 1;
         $match->round->roundResult = new RoundResultBlocked(
@@ -897,12 +783,11 @@ class GameEngineTest extends TestCase
         );
 
         $updated = GameEngine::applyRoundResult($match);
-        $this->assertSame(1, $updated->lastWinner);
-    }
+        expect($updated->lastWinner)->toBe(1);
+    });
 
-    public function test_apply_round_result_does_not_mutate_original(): void
-    {
-        $config = $this->makeConfig(2, false, 100);
+    it('does not mutate original', function () {
+        $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
         $match->round->roundResult = new RoundResultDomino(
             winner: 0, points: 20, handTotals: [0, 20]
@@ -910,88 +795,86 @@ class GameEngineTest extends TestCase
 
         $originalScores = $match->scores;
         GameEngine::applyRoundResult($match);
-        $this->assertSame($originalScores, $match->scores);
-    }
+        expect($match->scores)->toBe($originalScores);
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // startNextRound
-    // ------------------------------------------------------------------ //
-
-    public function test_start_next_round_creates_new_round(): void
-    {
-        $config = $this->makeConfig(2);
+describe('startNextRound', function () {
+    it('starts a new round opened by the last winner with no opening double', function () {
+        $config = engineConfig(2);
         $match = GameEngine::initMatch($config);
         $match->lastWinner = 1;
 
         $updated = GameEngine::startNextRound($match);
 
-        $this->assertNotSame($match->round, $updated->round);
-        $this->assertSame(1, $updated->round->firstMover);
-        $this->assertNull($updated->round->mandatoryFirstTile);
-    }
+        expect($updated->round)->not->toBe($match->round);
+        expect($updated->round->firstMover)->toBe(1);
+        expect($updated->round->openingDouble)->toBeNull();
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // Serialisation round-trip
-    // ------------------------------------------------------------------ //
-
-    public function test_tile_serialises_and_deserialises(): void
-    {
+describe('Serialisation round-trip', function () {
+    it('round-trips a tile through toArray and fromArray', function () {
         $tile = new Tile(3, 5, 12);
         $arr = $tile->toArray();
         $back = Tile::fromArray($arr);
 
-        $this->assertSame($tile->a, $back->a);
-        $this->assertSame($tile->b, $back->b);
-        $this->assertSame($tile->id, $back->id);
-    }
+        expect($back->a)->toBe($tile->a);
+        expect($back->b)->toBe($tile->b);
+        expect($back->id)->toBe($tile->id);
+    });
 
-    public function test_match_state_roundtrip_preserves_structure(): void
-    {
-        $config = $this->makeConfig(2, false, 100);
+    it('round-trips a match state through toArray and fromArray', function () {
+        $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
 
         $arr = $match->toArray();
         $back = MatchState::fromArray($arr);
 
-        $this->assertSame($match->scores, $back->scores);
-        $this->assertSame($match->matchOver, $back->matchOver);
-        $this->assertSame($match->roundsPlayed, $back->roundsPlayed);
-        $this->assertCount(count($match->round->hands[0]), $back->round->hands[0]);
-        $this->assertCount(count($match->round->boneyard), $back->round->boneyard);
-    }
+        expect($back->scores)->toBe($match->scores);
+        expect($back->matchOver)->toBe($match->matchOver);
+        expect($back->roundsPlayed)->toBe($match->roundsPlayed);
+        expect($back->round->hands[0])->toHaveCount(count($match->round->hands[0]));
+        expect($back->round->boneyard)->toHaveCount(count($match->round->boneyard));
+    });
 
-    public function test_round_result_domino_roundtrip(): void
-    {
+    it('round-trips a domino round result', function () {
         $r = new RoundResultDomino(2, 45, [0, 20, 25], winningTeam: 1);
         $arr = $r->toArray();
         $back = RoundResultDomino::fromArray($arr);
 
-        $this->assertSame($r->winner, $back->winner);
-        $this->assertSame($r->points, $back->points);
-        $this->assertSame($r->winningTeam, $back->winningTeam);
-    }
+        expect($back->winner)->toBe($r->winner);
+        expect($back->points)->toBe($r->points);
+        expect($back->winningTeam)->toBe($r->winningTeam);
+    });
 
-    public function test_round_result_domino_reads_legacy_capicua_fields(): void
-    {
+    it('reads a domino round result saved with the old capicúa fields', function () {
         // Matches saved before the capicúa rule was removed still load.
         $back = RoundResultDomino::fromArray([
             'kind' => 'domino', 'winner' => 0, 'points' => 42, 'handTotals' => [0, 12],
             'capicua' => true, 'capicuaBonus' => 30, 'winningTeam' => 0,
         ]);
 
-        $this->assertSame(42, $back->points);
-        $this->assertSame(0, $back->winningTeam);
-    }
+        expect($back->points)->toBe(42);
+        expect($back->winningTeam)->toBe(0);
+    });
 
-    public function test_round_result_blocked_roundtrip(): void
-    {
+    it('round-trips a blocked round result', function () {
         $r = new RoundResultBlocked(12, [3, 9], 0, null, null, null, null, null, null, 'sum', false);
         $arr = $r->toArray();
         $back = RoundResultBlocked::fromArray($arr);
 
-        $this->assertSame($r->winner, $back->winner);
-        $this->assertSame($r->points, $back->points);
-        $this->assertSame($r->tiebreak, $back->tiebreak);
-        $this->assertSame($r->tied, $back->tied);
-    }
-}
+        expect($back->winner)->toBe($r->winner);
+        expect($back->points)->toBe($r->points);
+        expect($back->tiebreak)->toBe($r->tiebreak);
+        expect($back->tied)->toBe($r->tied);
+    });
+
+    it('reads a game saved before the opening double was renamed', function () {
+        $data = engineRound()->toArray();
+        $data['mandatoryFirstTile'] = ['a' => 6, 'b' => 6];
+        unset($data['openingDouble']);
+
+        expect(RoundState::fromArray($data)->openingDouble)->toBe(['a' => 6, 'b' => 6]);
+    });
+});

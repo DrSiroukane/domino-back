@@ -49,10 +49,7 @@ function makeRoom(int $numPlayers = 2): Room
     ]);
 }
 
-/**
- * Returns a MatchState where the board already has one tile played,
- * so mandatoryFirstTile is null and currentPlayer is seat 0.
- */
+/** A room whose board already holds the opener's first tile (any tile may open), its match, and the seat to play next. */
 function makeRoomAfterFirstPlay(): array
 {
     $match = makeMatchState(2);
@@ -60,20 +57,8 @@ function makeRoomAfterFirstPlay(): array
     $starter = $round->currentPlayer;
     $tile = $round->hands[$starter][0];
 
-    // Play the mandatory (or any) first tile
-    $mandatoryTile = null;
-    if ($round->mandatoryFirstTile !== null) {
-        $m = $round->mandatoryFirstTile;
-        foreach ($round->hands[$starter] as $t) {
-            if ($t->a === $m['a'] && $t->b === $m['b']) {
-                $mandatoryTile = $t;
-                break;
-            }
-        }
-    }
-    $tileToPlay = $mandatoryTile ?? $tile;
-
-    $newRound = GameEngine::playTile($round, $starter, $tileToPlay->id, 'start');
+    // The opener may open with any tile.
+    $newRound = GameEngine::playTile($round, $starter, $tile->id, 'start');
     $match->round = $newRound;
 
     // currentPlayer is now the OTHER player (starter+1 % 2)
@@ -91,28 +76,22 @@ function makeRoomAfterFirstPlay(): array
 // PlayTileAction
 // ------------------------------------------------------------------ //
 
-it('plays a tile on the player\'s turn when the side is legal', function () {
+it('lets the opener open with a tile other than the opening double and keeps the double public', function () {
     $room = makeRoom();
     $match = MatchState::fromArray($room->match_state);
 
     $starter = $match->round->currentPlayer;
     $hand = $match->round->hands[$starter];
 
-    // Respect mandatory first tile if set
-    $tile = $hand[0];
-    if ($match->round->mandatoryFirstTile !== null) {
-        $m = $match->round->mandatoryFirstTile;
-        foreach ($hand as $t) {
-            if ($t->a === $m['a'] && $t->b === $m['b']) {
-                $tile = $t;
-                break;
-            }
-        }
-    }
+    // The opener may open with any tile, not only the highest double.
+    $double = $match->round->openingDouble;
+    $tile = collect($hand)->first(fn ($t) => $t->a !== $double['a'] || $t->b !== $double['b']);
 
     $updated = (new PlayTileAction)->execute($room, $starter, $tile->id, 'start');
 
-    expect($updated->round->board)->toHaveCount(1);
+    expect($updated->round->board)->toHaveCount(1)
+        ->and($updated->round->board[0]->tile->id)->toBe($tile->id)
+        ->and($updated->round->openingDouble)->toBe($double); // everyone still knows who holds it
     $room->refresh();
     expect($room->match_state['round']['board'])->toHaveCount(1);
 });
@@ -140,7 +119,7 @@ it('rejects a play with a tile that is not in hand', function () {
 });
 
 it('rejects a play on an illegal side', function () {
-    // After the first tile is played the board is non-empty and mandatoryFirstTile is null.
+    // After the first tile is played the board is non-empty.
     // Find a tile in the current player's hand that does NOT match either open end.
     ['room' => $room, 'match' => $match, 'currentPlayer' => $currentPlayer] = makeRoomAfterFirstPlay();
 
@@ -246,7 +225,7 @@ function makeRoomWhereSeatZeroMustPass(): Room
     $round->rightEnd = 6;
     $round->hands[0] = [new Tile(0, 1, 1), new Tile(2, 3, 9), new Tile(4, 5, 22)];
     $round->currentPlayer = 0;
-    $round->mandatoryFirstTile = null;
+    $round->openingDouble = null;
     $round->passes = 0;
     $match->round = $round;
 
@@ -328,17 +307,7 @@ it('returns the client view after a successful play', function () {
         return;
     }
 
-    $hand = $match->round->hands[0];
-    $tile = $hand[0];
-    if ($match->round->mandatoryFirstTile !== null) {
-        $m = $match->round->mandatoryFirstTile;
-        foreach ($hand as $t) {
-            if ($t->a === $m['a'] && $t->b === $m['b']) {
-                $tile = $t;
-                break;
-            }
-        }
-    }
+    $tile = $match->round->hands[0][0];
 
     $response = $this->actingAs($user)
         ->postJson("/api/rooms/{$room->id}/play", [
@@ -347,5 +316,5 @@ it('returns the client view after a successful play', function () {
         ]);
 
     $response->assertStatus(200)
-        ->assertJsonStructure(['playerIndex', 'myHand', 'handCounts', 'board', 'boneyardCount']);
+        ->assertJsonStructure(['playerIndex', 'myHand', 'handCounts', 'board', 'boneyardCount', 'openingDouble']);
 });

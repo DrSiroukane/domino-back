@@ -39,17 +39,10 @@ function hintCallRoom(MatchState $match): Room
     ]);
 }
 
-/** The forced opening double of round 1 and the seat that holds it. */
+/** The seat that opens round 1 and its opening double. */
 function openingMove(MatchState $match): array
 {
-    $round = $match->round;
-    $m = $round->mandatoryFirstTile;
-    foreach ($round->hands[$round->currentPlayer] as $t) {
-        if ($t->a === $m['a'] && $t->b === $m['b']) {
-            return [$round->currentPlayer, $t];
-        }
-    }
-    throw new RuntimeException('Opening tile not found');
+    return [$match->round->currentPlayer, openingDoubleTile($match)];
 }
 
 it('accepts hug it on the opening double and records it in history', function () {

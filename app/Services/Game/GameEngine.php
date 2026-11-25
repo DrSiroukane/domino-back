@@ -216,13 +216,15 @@ final class GameEngine
     {
         ['hands' => $hands, 'boneyard' => $boneyard] = self::deal($config->numPlayers);
 
+        // Later rounds: the last winner opens. The first round: the holder of the
+        // highest double, with any tile.
         if ($lastWinner !== null) {
             $firstMover = $lastWinner;
-            $mandatoryFirstTile = null;
+            $openingDouble = null;
         } else {
             $start = self::findHighestDoubleStarter($hands);
             $firstMover = $start['player'];
-            $mandatoryFirstTile = $start['tile'];
+            $openingDouble = $start['tile'];
         }
 
         return new RoundState(
@@ -235,7 +237,7 @@ final class GameEngine
             boneyard: $boneyard,
             currentPlayer: $firstMover,
             firstMover: $firstMover,
-            mandatoryFirstTile: $mandatoryFirstTile,
+            openingDouble: $openingDouble,
             passes: 0,
             roundOver: false,
             history: [],
@@ -497,7 +499,6 @@ final class GameEngine
         $s->rightEnd = $newRightEnd;
         $s->passes = 0;
         $s->history = $newHistory;
-        $s->mandatoryFirstTile = null;
         $s->currentPlayer = ($playerIdx + 1) % $state->numPlayers;
 
         if (count($newHands[$playerIdx]) === 0) {

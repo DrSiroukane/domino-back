@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Game;
-
 use App\Services\Game\Data\BoardEntryStart;
 use App\Services\Game\Data\HistoryEntry;
 use App\Services\Game\Data\MatchConfig;
@@ -15,330 +13,274 @@ use App\Services\Game\Enums\HintCall;
 use App\Services\Game\Enums\Opponents;
 use App\Services\Game\GameEngine;
 use App\Services\Game\HintCallAdvisor;
-use Tests\TestCase;
 
-class HintCallTest extends TestCase
+function callConfig(bool $hintCalls = true, int $numPlayers = 4, bool $teams = true, Difficulty $difficulty = Difficulty::Medium): MatchConfig
 {
-    // ------------------------------------------------------------------ //
-    // Helpers
-    // ------------------------------------------------------------------ //
+    return new MatchConfig(
+        numPlayers: $numPlayers,
+        teams: $teams,
+        opponents: Opponents::Hotseat,
+        difficulty: $difficulty,
+        target: 100,
+        blockedTiebreak: BlockedTiebreak::Sum,
+        hintCalls: $hintCalls,
+    );
+}
 
-    private function config(bool $hintCalls = true, int $numPlayers = 4, bool $teams = true, Difficulty $difficulty = Difficulty::Medium): MatchConfig
-    {
-        return new MatchConfig(
-            numPlayers: $numPlayers,
-            teams: $teams,
-            opponents: Opponents::Hotseat,
-            difficulty: $difficulty,
-            target: 100,
-            blockedTiebreak: BlockedTiebreak::Sum,
-            hintCalls: $hintCalls,
-        );
-    }
+function callTile(int $a, int $b): Tile
+{
+    return new Tile($a, $b, $a * 7 + $b);
+}
 
-    private function t(int $a, int $b): Tile
-    {
-        return new Tile($a, $b, $a * 7 + $b);
-    }
+/**
+ * Seat 0's hand is `$hand`; other seats get filler. With `$opening` the board is empty,
+ * otherwise the 6-6 lies on the table (both ends 6).
+ *
+ * @param  Tile[]  $hand
+ * @param  HistoryEntry[]  $history
+ */
+function callRound(array $hand, bool $opening = false, array $history = []): RoundState
+{
+    $filler = [callTile(0, 0), callTile(0, 1), callTile(0, 2)];
 
-    /**
-     * Seat 0's hand is `$hand`; other seats get filler. With `$opening` the board is empty,
-     * otherwise the 6-6 lies on the table (both ends 6).
-     *
-     * @param  Tile[]  $hand
-     * @param  HistoryEntry[]  $history
-     */
-    private function round(array $hand, bool $opening = false, array $history = []): RoundState
-    {
-        $filler = [$this->t(0, 0), $this->t(0, 1), $this->t(0, 2)];
+    return new RoundState(
+        numPlayers: 4,
+        teams: true,
+        hands: [$hand, $filler, $filler, $filler],
+        board: $opening ? [] : [new BoardEntryStart(callTile(6, 6), 6, 6)],
+        leftEnd: $opening ? null : 6,
+        rightEnd: $opening ? null : 6,
+        boneyard: [],
+        currentPlayer: 0,
+        firstMover: 0,
+        openingDouble: null,
+        passes: 0,
+        roundOver: false,
+        history: $history,
+        roundResult: null,
+    );
+}
 
-        return new RoundState(
-            numPlayers: 4,
-            teams: true,
-            hands: [$hand, $filler, $filler, $filler],
-            board: $opening ? [] : [new BoardEntryStart($this->t(6, 6), 6, 6)],
-            leftEnd: $opening ? null : 6,
-            rightEnd: $opening ? null : 6,
-            boneyard: [],
-            currentPlayer: 0,
-            firstMover: 0,
-            mandatoryFirstTile: null,
-            passes: 0,
-            roundOver: false,
-            history: $history,
-            roundResult: null,
-        );
-    }
+describe('legalCalls', function () {
+    it('allows no call when hint calls are off', function () {
+        $round = callRound([callTile(6, 2), callTile(1, 1), callTile(3, 4)]);
 
-    // ------------------------------------------------------------------ //
-    // legalCalls
-    // ------------------------------------------------------------------ //
+        expect(GameEngine::legalCalls(callConfig(hintCalls: false), $round, 0, callTile(6, 2)))->toBe([]);
+    });
 
-    public function test_no_calls_when_hint_calls_are_off(): void
-    {
-        $round = $this->round([$this->t(6, 2), $this->t(1, 1), $this->t(3, 4)]);
+    it('allows no call outside four-player teams', function () {
+        $round = callRound([callTile(6, 2), callTile(1, 1), callTile(3, 4)]);
 
-        $this->assertSame([], GameEngine::legalCalls($this->config(hintCalls: false), $round, 0, $this->t(6, 2)));
-    }
+        expect(GameEngine::legalCalls(callConfig(numPlayers: 2, teams: false), $round, 0, callTile(6, 2)))->toBe([]);
+    });
 
-    public function test_no_calls_outside_four_player_teams(): void
-    {
-        $round = $this->round([$this->t(6, 2), $this->t(1, 1), $this->t(3, 4)]);
+    it('allows only hug it when opening with a double', function () {
+        $round = callRound([callTile(6, 6), callTile(1, 1), callTile(3, 4)], opening: true);
 
-        $this->assertSame([], GameEngine::legalCalls($this->config(numPlayers: 2, teams: false), $round, 0, $this->t(6, 2)));
-    }
+        expect(GameEngine::legalCalls(callConfig(), $round, 0, callTile(6, 6)))->toBe([HintCall::HugIt]);
+    });
 
-    public function test_opening_double_allows_only_hug_it(): void
-    {
-        $round = $this->round([$this->t(6, 6), $this->t(1, 1), $this->t(3, 4)], opening: true);
+    it('allows no call when opening with a non-double', function () {
+        $round = callRound([callTile(6, 5), callTile(1, 1), callTile(3, 4)], opening: true);
 
-        $this->assertSame([HintCall::HugIt], GameEngine::legalCalls($this->config(), $round, 0, $this->t(6, 6)));
-    }
+        expect(GameEngine::legalCalls(callConfig(), $round, 0, callTile(6, 5)))->toBe([]);
+    });
 
-    public function test_opening_non_double_allows_no_call(): void
-    {
-        $round = $this->round([$this->t(6, 5), $this->t(1, 1), $this->t(3, 4)], opening: true);
+    it('allows the number calls and close game mid-round', function () {
+        $round = callRound([callTile(6, 2), callTile(1, 1), callTile(3, 4)]);
 
-        $this->assertSame([], GameEngine::legalCalls($this->config(), $round, 0, $this->t(6, 5)));
-    }
+        expect(GameEngine::legalCalls(callConfig(), $round, 0, callTile(6, 2)))->toBe([HintCall::One, HintCall::Good, HintCall::Dead, HintCall::MyHead, HintCall::CloseGame]);
+    });
 
-    public function test_mid_game_allows_number_calls_and_close_game(): void
-    {
-        $round = $this->round([$this->t(6, 2), $this->t(1, 1), $this->t(3, 4)]);
+    it('allows no call when the play leaves one tile', function () {
+        $round = callRound([callTile(6, 2), callTile(1, 1)]);
 
-        $this->assertSame(
-            [HintCall::One, HintCall::Good, HintCall::Dead, HintCall::MyHead, HintCall::CloseGame],
-            GameEngine::legalCalls($this->config(), $round, 0, $this->t(6, 2)),
-        );
-    }
+        expect(GameEngine::legalCalls(callConfig(), $round, 0, callTile(6, 2)))->toBe([]);
+    });
+});
 
-    public function test_no_call_when_play_leaves_one_tile(): void
-    {
-        $round = $this->round([$this->t(6, 2), $this->t(1, 1)]);
-
-        $this->assertSame([], GameEngine::legalCalls($this->config(), $round, 0, $this->t(6, 2)));
-    }
-
-    // ------------------------------------------------------------------ //
-    // Recording calls
-    // ------------------------------------------------------------------ //
-
-    public function test_play_records_call_with_open_end_number(): void
-    {
-        $tile = $this->t(6, 2);
-        $round = $this->round([$tile, $this->t(1, 1), $this->t(3, 4)]);
+describe('Recording calls', function () {
+    it('records a play\'s call with the open end\'s number', function () {
+        $tile = callTile(6, 2);
+        $round = callRound([$tile, callTile(1, 1), callTile(3, 4)]);
 
         $history = GameEngine::playTile($round, 0, $tile->id, 'right', HintCall::Good)->history;
         $last = end($history);
 
-        $this->assertSame('good', $last->call);
-        $this->assertSame(2, $last->callNumber);
-        $this->assertSame(['player' => 0, 'action' => 'play', 'tile' => $tile->toArray(), 'side' => 'right', 'call' => 'good', 'callNumber' => 2], $last->toArray());
-    }
+        expect($last->call)->toBe('good');
+        expect($last->callNumber)->toBe(2);
+        expect($last->toArray())->toBe(['player' => 0, 'action' => 'play', 'tile' => $tile->toArray(), 'side' => 'right', 'call' => 'good', 'callNumber' => 2]);
+    });
 
-    public function test_close_game_has_no_number(): void
-    {
-        $tile = $this->t(6, 2);
-        $round = $this->round([$tile, $this->t(1, 1), $this->t(3, 4)]);
+    it('records close game without a number', function () {
+        $tile = callTile(6, 2);
+        $round = callRound([$tile, callTile(1, 1), callTile(3, 4)]);
 
         $history = GameEngine::playTile($round, 0, $tile->id, 'left', HintCall::CloseGame)->history;
         $last = end($history);
 
-        $this->assertSame('close_game', $last->call);
-        $this->assertNull($last->callNumber);
-    }
+        expect($last->call)->toBe('close_game');
+        expect($last->callNumber)->toBeNull();
+    });
 
-    public function test_history_without_call_is_unchanged_and_old_entries_load(): void
-    {
+    it('loads and saves a history entry without a call unchanged', function () {
         $entry = HistoryEntry::fromArray(['player' => 1, 'action' => 'pass']);
 
-        $this->assertNull($entry->call);
-        $this->assertSame(['player' => 1, 'action' => 'pass'], $entry->toArray());
-    }
+        expect($entry->call)->toBeNull();
+        expect($entry->toArray())->toBe(['player' => 1, 'action' => 'pass']);
+    });
 
-    public function test_old_match_config_loads_with_hint_calls_off(): void
-    {
+    it('loads an old match config with hint calls off', function () {
         $config = MatchConfig::fromArray([
             'numPlayers' => 4, 'teams' => true, 'opponents' => 'hotseat',
             'difficulty' => 'medium', 'target' => 100,
         ]);
 
-        $this->assertFalse($config->hintCalls);
-    }
+        expect($config->hintCalls)->toBeFalse();
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // Bot advice
-    // ------------------------------------------------------------------ //
+describe('Bot advice', function () {
+    it('says hug it when it cannot follow the double', function () {
+        $double = callTile(6, 6);
+        $round = callRound([$double, callTile(6, 1), callTile(3, 4)], opening: true);
 
-    public function test_bot_says_hug_it_when_it_cannot_follow_the_double(): void
-    {
-        $double = $this->t(6, 6);
-        $round = $this->round([$double, $this->t(6, 1), $this->t(3, 4)], opening: true);
+        expect(HintCallAdvisor::chooseCall(callConfig(), $round, 0, $double, 'start'))->toBe(HintCall::HugIt);
+    });
 
-        $this->assertSame(HintCall::HugIt, HintCallAdvisor::chooseCall($this->config(), $round, 0, $double, 'start'));
-    }
+    it('stays silent on opening when strong in the number', function () {
+        $double = callTile(6, 6);
+        $round = callRound([$double, callTile(6, 1), callTile(6, 4), callTile(2, 3)], opening: true);
 
-    public function test_bot_stays_silent_on_opening_when_strong_in_the_number(): void
-    {
-        $double = $this->t(6, 6);
-        $round = $this->round([$double, $this->t(6, 1), $this->t(6, 4), $this->t(2, 3)], opening: true);
+        expect(HintCallAdvisor::chooseCall(callConfig(), $round, 0, $double, 'start'))->toBeNull();
+    });
 
-        $this->assertNull(HintCallAdvisor::chooseCall($this->config(), $round, 0, $double, 'start'));
-    }
+    it('calls good dead one and my head honestly', function () {
+        $tile = callTile(6, 2);
+        $config = callConfig();
 
-    public function test_bot_calls_good_dead_one_and_my_head_honestly(): void
-    {
-        $tile = $this->t(6, 2);
-        $config = $this->config();
+        $good = callRound([$tile, callTile(2, 1), callTile(2, 4), callTile(5, 5)]);
+        expect(HintCallAdvisor::chooseCall($config, $good, 0, $tile, 'right', 0.99))->toBe(HintCall::Good);
 
-        $good = $this->round([$tile, $this->t(2, 1), $this->t(2, 4), $this->t(5, 5)]);
-        $this->assertSame(HintCall::Good, HintCallAdvisor::chooseCall($config, $good, 0, $tile, 'right', 0.99));
+        $dead = callRound([$tile, callTile(1, 3), callTile(4, 5), callTile(5, 5)]);
+        expect(HintCallAdvisor::chooseCall($config, $dead, 0, $tile, 'right', 0.99))->toBe(HintCall::Dead);
 
-        $dead = $this->round([$tile, $this->t(1, 3), $this->t(4, 5), $this->t(5, 5)]);
-        $this->assertSame(HintCall::Dead, HintCallAdvisor::chooseCall($config, $dead, 0, $tile, 'right', 0.99));
+        $one = callRound([$tile, callTile(2, 1), callTile(4, 5), callTile(5, 5)]);
+        expect(HintCallAdvisor::chooseCall($config, $one, 0, $tile, 'right', 0.99))->toBe(HintCall::One);
 
-        $one = $this->round([$tile, $this->t(2, 1), $this->t(4, 5), $this->t(5, 5)]);
-        $this->assertSame(HintCall::One, HintCallAdvisor::chooseCall($config, $one, 0, $tile, 'right', 0.99));
+        $head = callRound([$tile, callTile(2, 2), callTile(4, 5), callTile(5, 5)]);
+        expect(HintCallAdvisor::chooseCall($config, $head, 0, $tile, 'right', 0.99))->toBe(HintCall::MyHead);
+    });
 
-        $head = $this->round([$tile, $this->t(2, 2), $this->t(4, 5), $this->t(5, 5)]);
-        $this->assertSame(HintCall::MyHead, HintCallAdvisor::chooseCall($config, $head, 0, $tile, 'right', 0.99));
-    }
+    it('may bluff dead with one tile but easy bots never do', function () {
+        $tile = callTile(6, 2);
+        $round = callRound([$tile, callTile(2, 1), callTile(4, 5), callTile(5, 5), callTile(3, 4)]);
 
-    public function test_bot_may_bluff_dead_with_one_tile_but_easy_bots_never_do(): void
-    {
-        $tile = $this->t(6, 2);
-        $round = $this->round([$tile, $this->t(2, 1), $this->t(4, 5), $this->t(5, 5), $this->t(3, 4)]);
+        expect(HintCallAdvisor::chooseCall(callConfig(difficulty: Difficulty::Hard), $round, 0, $tile, 'right', 0.0))->toBe(HintCall::Dead);
+        expect(HintCallAdvisor::chooseCall(callConfig(difficulty: Difficulty::Easy), $round, 0, $tile, 'right', 0.0))->toBe(HintCall::One);
+    });
 
-        $this->assertSame(HintCall::Dead, HintCallAdvisor::chooseCall($this->config(difficulty: Difficulty::Hard), $round, 0, $tile, 'right', 0.0));
-        $this->assertSame(HintCall::One, HintCallAdvisor::chooseCall($this->config(difficulty: Difficulty::Easy), $round, 0, $tile, 'right', 0.0));
-    }
-
-    public function test_bot_keeps_partner_good_number_open(): void
-    {
+    it('keeps partner good number open', function () {
         // Partner (seat 2) called "good" on 3 earlier this round.
-        $history = [new HistoryEntry(2, 'play', $this->t(5, 3), 'left', 'good', 3)];
-        $round = $this->round([$this->t(6, 3), $this->t(6, 1), $this->t(4, 4)], history: $history);
+        $history = [new HistoryEntry(2, 'play', callTile(5, 3), 'left', 'good', 3)];
+        $round = callRound([callTile(6, 3), callTile(6, 1), callTile(4, 4)], history: $history);
 
-        $this->assertGreaterThan(
-            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
-            HintCallAdvisor::callScore($round, 0, $this->t(6, 3), 'right'),
-        );
-    }
+        expect(HintCallAdvisor::callScore($round, 0, callTile(6, 3), 'right'))->toBeGreaterThan(HintCallAdvisor::callScore($round, 0, callTile(6, 1), 'right'));
+    });
 
-    public function test_bot_answers_partner_hug_it_by_playing_the_other_side(): void
-    {
+    it('answers partner hug it by playing the other side', function () {
         $history = [
-            new HistoryEntry(2, 'play', $this->t(6, 6), 'start', 'hug_it', 6),
-            new HistoryEntry(3, 'play', $this->t(6, 5), 'right'),
+            new HistoryEntry(2, 'play', callTile(6, 6), 'start', 'hug_it', 6),
+            new HistoryEntry(3, 'play', callTile(6, 5), 'right'),
         ];
-        $round = $this->round([$this->t(6, 1), $this->t(4, 4), $this->t(3, 3)], history: $history);
+        $round = callRound([callTile(6, 1), callTile(4, 4), callTile(3, 3)], history: $history);
 
-        $this->assertGreaterThan(
-            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
-            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'left'),
-        );
-    }
+        expect(HintCallAdvisor::callScore($round, 0, callTile(6, 1), 'left'))->toBeGreaterThan(HintCallAdvisor::callScore($round, 0, callTile(6, 1), 'right'));
+    });
+});
 
-    // ------------------------------------------------------------------ //
-    // Passing: "close the game" call and passed-on numbers
-    // ------------------------------------------------------------------ //
+describe('Passing: "close the game" call and passed-on numbers', function () {
+    it('allows only close the game with a pass', function () {
+        $round = callRound([callTile(1, 2), callTile(3, 4)]);
 
-    public function test_pass_allows_only_close_the_game(): void
-    {
-        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+        expect(GameEngine::legalPassCalls(callConfig(), $round, 0))->toBe([HintCall::CloseGame]);
+        expect(GameEngine::legalPassCalls(callConfig(hintCalls: false), $round, 0))->toBe([]);
+        expect(GameEngine::legalPassCalls(callConfig(numPlayers: 2, teams: false), $round, 0))->toBe([]);
+    });
 
-        $this->assertSame([HintCall::CloseGame], GameEngine::legalPassCalls($this->config(), $round, 0));
-        $this->assertSame([], GameEngine::legalPassCalls($this->config(hintCalls: false), $round, 0));
-        $this->assertSame([], GameEngine::legalPassCalls($this->config(numPlayers: 2, teams: false), $round, 0));
-    }
+    it('allows no pass call on the last tile', function () {
+        $round = callRound([callTile(1, 2)]);
 
-    public function test_no_pass_call_on_the_last_tile(): void
-    {
-        $round = $this->round([$this->t(1, 2)]);
+        expect(GameEngine::legalPassCalls(callConfig(), $round, 0))->toBe([]);
+    });
 
-        $this->assertSame([], GameEngine::legalPassCalls($this->config(), $round, 0));
-    }
-
-    public function test_no_close_the_game_on_the_pass_that_ends_the_round(): void
-    {
-        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+    it('allows no close the game on the pass that ends the round', function () {
+        $round = callRound([callTile(1, 2), callTile(3, 4)]);
         $round->passes = 3; // the other three already passed: this pass blocks the round
 
-        $this->assertSame([], GameEngine::legalPassCalls($this->config(), $round, 0));
-    }
+        expect(GameEngine::legalPassCalls(callConfig(), $round, 0))->toBe([]);
+    });
 
-    public function test_no_close_the_game_when_nobody_can_follow_either_end(): void
-    {
+    it('allows no close the game when nobody can follow either end', function () {
         // All seven 6s are on the board and both ends show 6: the game is already closed.
-        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+        $round = callRound([callTile(1, 2), callTile(3, 4)]);
         $round->board = array_map(
-            fn (int $x) => new BoardEntryStart($this->t(min($x, 6), max($x, 6)), 6, 6),
+            fn (int $x) => new BoardEntryStart(callTile(min($x, 6), max($x, 6)), 6, 6),
             [0, 1, 2, 3, 4, 5, 6],
         );
 
-        $this->assertTrue(GameEngine::endsAreDead($round));
-        $this->assertSame([], GameEngine::legalPassCalls($this->config(), $round, 0));
-    }
+        expect(GameEngine::endsAreDead($round))->toBeTrue();
+        expect(GameEngine::legalPassCalls(callConfig(), $round, 0))->toBe([]);
+    });
 
-    public function test_pass_turn_records_the_call(): void
-    {
-        $round = $this->round([$this->t(1, 2), $this->t(3, 4)]);
+    it('records the call with the pass', function () {
+        $round = callRound([callTile(1, 2), callTile(3, 4)]);
 
         $after = GameEngine::passTurn($round, 0, [], HintCall::CloseGame);
         $entry = end($after->history);
 
-        $this->assertSame('pass', $entry->action);
-        $this->assertSame('close_game', $entry->call);
-        $this->assertSame(['player' => 0, 'action' => 'pass', 'call' => 'close_game', 'callNumber' => null], $entry->toArray());
-    }
+        expect($entry->action)->toBe('pass');
+        expect($entry->call)->toBe('close_game');
+        expect($entry->toArray())->toBe(['player' => 0, 'action' => 'pass', 'call' => 'close_game', 'callNumber' => null]);
+    });
 
-    public function test_passed_numbers_are_the_open_ends_at_each_pass(): void
-    {
+    it('collects the open ends each seat passed on', function () {
         $history = [
-            new HistoryEntry(0, 'play', $this->t(6, 6), 'start'),
+            new HistoryEntry(0, 'play', callTile(6, 6), 'start'),
             new HistoryEntry(1, 'pass'),                                 // ends 6 | 6
-            new HistoryEntry(2, 'play', $this->t(6, 2), 'right'),        // ends 6 | 2
-            new HistoryEntry(3, 'play', $this->t(4, 6), 'left'),         // ends 4 | 2
+            new HistoryEntry(2, 'play', callTile(6, 2), 'right'),        // ends 6 | 2
+            new HistoryEntry(3, 'play', callTile(4, 6), 'left'),         // ends 4 | 2
             new HistoryEntry(0, 'pass'),                                 // ends 4 | 2
             new HistoryEntry(1, 'pass'),                                 // ends 4 | 2
         ];
-        $round = $this->round([], history: $history);
+        $round = callRound([], history: $history);
 
-        $this->assertSame([1 => [2, 4, 6], 0 => [2, 4]], GameEngine::passedNumbers($round));
-    }
+        expect(GameEngine::passedNumbers($round))->toBe([1 => [2, 4, 6], 0 => [2, 4]]);
+    });
 
-    public function test_bot_avoids_leaving_partner_stuck_again(): void
-    {
+    it('avoids leaving the partner stuck on a number they passed on', function () {
         // Partner (seat 2) passed on 6 | 6.
-        $history = [new HistoryEntry(1, 'play', $this->t(6, 6), 'start'), new HistoryEntry(2, 'pass')];
-        $round = $this->round([$this->t(6, 1), $this->t(6, 5)], history: $history);
+        $history = [new HistoryEntry(1, 'play', callTile(6, 6), 'start'), new HistoryEntry(2, 'pass')];
+        $round = callRound([callTile(6, 1), callTile(6, 5)], history: $history);
         $round->hands[0][] = new Tile(6, 6, 99); // a second 6-6 only for the test: it would keep 6 | 6 open
 
-        $this->assertGreaterThan(
-            HintCallAdvisor::callScore($round, 0, new Tile(6, 6, 99), 'right'),
-            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
-        );
-    }
+        expect(HintCallAdvisor::callScore($round, 0, callTile(6, 1), 'right'))->toBeGreaterThan(HintCallAdvisor::callScore($round, 0, new Tile(6, 6, 99), 'right'));
+    });
 
-    public function test_bot_prefers_leaving_an_opponent_stuck(): void
-    {
+    it('prefers leaving an opponent stuck', function () {
         // Opponent (seat 1) passed on 6 | 6.
-        $history = [new HistoryEntry(3, 'play', $this->t(6, 6), 'start'), new HistoryEntry(1, 'pass')];
-        $round = $this->round([$this->t(6, 1)], history: $history);
+        $history = [new HistoryEntry(3, 'play', callTile(6, 6), 'start'), new HistoryEntry(1, 'pass')];
+        $round = callRound([callTile(6, 1)], history: $history);
 
-        $this->assertGreaterThan(
-            HintCallAdvisor::callScore($round, 0, $this->t(6, 1), 'right'),
-            HintCallAdvisor::callScore($round, 0, new Tile(6, 6, 99), 'right'),
-        );
-    }
+        expect(HintCallAdvisor::callScore($round, 0, new Tile(6, 6, 99), 'right'))->toBeGreaterThan(HintCallAdvisor::callScore($round, 0, callTile(6, 1), 'right'));
+    });
 
-    public function test_bot_calls_close_the_game_when_passing_with_a_low_hand(): void
-    {
-        $low = $this->round([$this->t(0, 1), $this->t(0, 2), $this->t(1, 1)]);    // 5 pips
-        $high = $this->round([$this->t(5, 5), $this->t(4, 3), $this->t(1, 1)]);   // 19 pips
+    it('calls close the game when passing with a low hand', function () {
+        $low = callRound([callTile(0, 1), callTile(0, 2), callTile(1, 1)]);    // 5 pips
+        $high = callRound([callTile(5, 5), callTile(4, 3), callTile(1, 1)]);   // 19 pips
 
-        $this->assertSame(HintCall::CloseGame, HintCallAdvisor::choosePassCall($this->config(), $low, 0));
-        $this->assertNull(HintCallAdvisor::choosePassCall($this->config(), $high, 0));
-        $this->assertNull(HintCallAdvisor::choosePassCall($this->config(hintCalls: false), $low, 0));
-    }
-}
+        expect(HintCallAdvisor::choosePassCall(callConfig(), $low, 0))->toBe(HintCall::CloseGame);
+        expect(HintCallAdvisor::choosePassCall(callConfig(), $high, 0))->toBeNull();
+        expect(HintCallAdvisor::choosePassCall(callConfig(hintCalls: false), $low, 0))->toBeNull();
+    });
+});

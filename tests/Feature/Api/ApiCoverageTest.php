@@ -208,8 +208,7 @@ it('accepts a hint call through the play endpoint and returns the updated view',
     [$room, $users] = startedRoom(4, ['hintCalls' => true]);
     $match = MatchState::fromArray($room->match_state);
     $seat = $match->round->currentPlayer;
-    $m = $match->round->mandatoryFirstTile;
-    $tile = collect($match->round->hands[$seat])->first(fn ($t) => $t->a === $m['a'] && $t->b === $m['b']);
+    $tile = openingDoubleTile($match);
 
     $view = $this->actingAs($users[$seat])->postJson("/api/rooms/{$room->id}/play", [
         'tileId' => $tile->id, 'side' => 'start', 'call' => 'hug_it',

@@ -25,21 +25,6 @@ final class BotPlayer
         $hand = $round->hands[$playerIndex];
         $blockedTiebreak = $match->config->blockedTiebreak->value;
 
-        // Mandatory opening tile (first move of the round)
-        if ($round->mandatoryFirstTile !== null) {
-            $m = $round->mandatoryFirstTile;
-            foreach ($hand as $tile) {
-                if ($tile->a === $m['a'] && $tile->b === $m['b']) {
-                    $call = HintCallAdvisor::chooseCall($match->config, $round, $playerIndex, $tile, 'start');
-
-                    return self::commitPlay(
-                        $match,
-                        GameEngine::playTile($round, $playerIndex, $tile->id, 'start', $call),
-                    );
-                }
-            }
-        }
-
         // With hint calls on: pick the move the table's calls favour, and make a call with it.
         if ($match->config->hintCallsActive() && GameEngine::canPlayAnyTile($round, $hand)) {
             $best = null;

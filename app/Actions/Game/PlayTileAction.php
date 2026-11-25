@@ -17,7 +17,6 @@ use App\Services\Game\GameEngine;
  *  - Match and round must be in progress.
  *  - It must be the player's turn.
  *  - The tile must exist in the player's hand.
- *  - If a mandatory first tile is set, it must be played.
  *  - The chosen side must be legally playable.
  *  - A hint call, if any, must be allowed at this moment (timing only — bluffs are legal).
  */
@@ -52,17 +51,6 @@ final class PlayTileAction
 
         if ($tile === null) {
             throw new InvalidMoveException('Tile not found in your hand.', 'tile_not_in_hand');
-        }
-
-        // Enforce mandatory first tile (round opener constraint)
-        if ($round->mandatoryFirstTile !== null) {
-            $m = $round->mandatoryFirstTile;
-            if ($tile->a !== $m['a'] || $tile->b !== $m['b']) {
-                throw new InvalidMoveException(
-                    "You must play the mandatory first tile ({$m['a']}-{$m['b']}).",
-                    'mandatory_first_tile',
-                );
-            }
         }
 
         $legalSides = GameEngine::legalSidesForTile($round, $tile);

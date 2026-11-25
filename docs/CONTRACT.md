@@ -89,7 +89,7 @@ UI decisions use `code`, never the message text.
 | `room_not_open`, `already_in_room`, `room_full` | 422 | Joining a room. |
 | `game_not_in_progress` | 422 | A game route on a room that is not playing. |
 | `match_over`, `round_over`, `not_your_turn` | 422 | Any move. |
-| `tile_not_in_hand`, `mandatory_first_tile`, `illegal_side`, `illegal_call` | 422 | Playing a tile. |
+| `tile_not_in_hand`, `illegal_side`, `illegal_call` | 422 | Playing a tile. |
 | `can_play`, `boneyard_empty`, `must_draw` | 422 | Drawing or passing. |
 | `no_such_seat`, `cannot_substitute_self`, `seat_already_bot`, `player_connected` | 422 | Bot substitution. |
 | `presence_unavailable`, `database_unavailable` | 503 | A dependency is down. |
@@ -126,7 +126,7 @@ The game state is the same model on both sides. TypeScript types live in
 | `HistoryEntry` | `Data\HistoryEntry` | `{player, action, tile?, side?, call?, callNumber?}` |
 | `RoundResult…` | `Data\RoundResult…` | `kind: 'domino' \| 'blocked'` |
 | `MatchConfig` | `Data\MatchConfig` | `partner` is frontend-only (local games) |
-| `RoundState`, `MatchState` | `Data\RoundState`, `Data\MatchState` | the server adds `turnToken`, `turnExpiresAt`, `botSeats`, `forfeitedSeats`, `lastRoundResult` |
+| `RoundState`, `MatchState` | `Data\RoundState`, `Data\MatchState` | the server adds `turnToken`, `turnExpiresAt`, `botSeats`, `forfeitedSeats`, `lastRoundResult`; `openingDouble` (below) |
 | `ClientView` | `Data\ClientView` | one seat's redacted view (`Redactor`) |
 | `Side`, `HintCall`, `Difficulty`, `Opponents`, `blockedTiebreak` | `Enums\Side`, `HintCall`, `Difficulty`, `Opponents`, `BlockedTiebreak` | same string values |
 | `Room['status']` | `App\Enums\RoomStatus` | `waiting`, `playing`, `finished` |
@@ -135,6 +135,13 @@ The game state is the same model on both sides. TypeScript types live in
 
 The frontend plays local games itself; the server is the authority online. The
 same rule has the same name on both sides — change both together.
+
+**Opening.** In the first round of a match the holder of the highest double
+(or, when no double was dealt, of the heaviest tile) opens (`firstMover`),
+with any tile they like. That tile is `openingDouble` on `RoundState` and
+`ClientView`, public for the whole round: until it is played, everyone knows
+the opener holds it. Later rounds are opened by the last
+winner, and `openingDouble` is null.
 
 | domino-front | domino-backend |
 | --- | --- |

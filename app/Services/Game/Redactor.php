@@ -55,7 +55,7 @@ final class Redactor
             boneyardCount: count($round->boneyard),
             currentPlayer: $round->currentPlayer,
             firstMover: $round->firstMover,
-            mandatoryFirstTile: $round->mandatoryFirstTile,
+            openingDouble: $round->openingDouble,
             passes: $round->passes,
             roundOver: $round->roundOver,
             history: $history,

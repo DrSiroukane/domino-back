@@ -14,7 +14,10 @@ final class RoundState
      * @param  BoardEntry[]  $board
      * @param  Tile[]  $boneyard
      * @param  HistoryEntry[]  $history
-     * @param  array{a:int,b:int}|null  $mandatoryFirstTile
+     * @param  array{a:int,b:int}|null  $openingDouble  The highest double dealt in a match's first round (or, when
+     *                                                  no double was dealt, the opener's heaviest tile): its holder
+     *                                                  opens, with any tile, and everyone knows they hold it until it
+     *                                                  is played. Null when the last winner opens.
      */
     public function __construct(
         public int $numPlayers,
@@ -26,7 +29,7 @@ final class RoundState
         public array $boneyard,
         public int $currentPlayer,
         public int $firstMover,
-        public ?array $mandatoryFirstTile,
+        public ?array $openingDouble,
         public int $passes,
         public bool $roundOver,
         public array $history,
@@ -52,7 +55,7 @@ final class RoundState
             ),
             'currentPlayer' => $this->currentPlayer,
             'firstMover' => $this->firstMover,
-            'mandatoryFirstTile' => $this->mandatoryFirstTile,
+            'openingDouble' => $this->openingDouble,
             'passes' => $this->passes,
             'roundOver' => $this->roundOver,
             'history' => array_values(
@@ -96,7 +99,8 @@ final class RoundState
             boneyard: $boneyard,
             currentPlayer: (int) $data['currentPlayer'],
             firstMover: (int) $data['firstMover'],
-            mandatoryFirstTile: $data['mandatoryFirstTile'] ?? null,
+            // Games saved before the rename keep their opening double.
+            openingDouble: $data['openingDouble'] ?? $data['mandatoryFirstTile'] ?? null,
             passes: (int) $data['passes'],
             roundOver: (bool) $data['roundOver'],
             history: $history,
