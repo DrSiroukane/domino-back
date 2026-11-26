@@ -717,6 +717,27 @@ final class GameEngine
     // ------------------------------------------------------------------ //
 
     /**
+     * The seat of `$team` with the fewest pips left; on a tie, the first of them
+     * in turn order from `$from` (the round's opener). Teams are 4 players,
+     * seats 0 & 2 and 1 & 3, so `$team` is a seat's number modulo 2 and always
+     * has a seat (the `?? $from` only satisfies the return type).
+     *
+     * @param  array<int, int>  $handTotals
+     */
+    private static function lowestSeatOf(array $handTotals, int $team, int $from, int $numPlayers): int
+    {
+        $best = null;
+        for ($k = 0; $k < $numPlayers; $k++) {
+            $p = ($from + $k) % $numPlayers;
+            if ($p % 2 === $team && ($best === null || $handTotals[$p] < $handTotals[$best])) {
+                $best = $p;
+            }
+        }
+
+        return $best ?? $from;
+    }
+
+    /**
      * Applies the finished round's result to the match scores.
      * Determines lastWinner (next round's first mover) and checks if the match is over.
      */
@@ -738,11 +759,13 @@ final class GameEngine
                 if ($winner !== null) {
                     // Domino: the player who placed the last tile starts next
                     $lastWinner = $winner;
-                } elseif ($r instanceof RoundResultBlocked && $r->lowPlayer !== null) {
-                    // Blocked low-player tiebreak: that player starts next
-                    $lastWinner = $r->lowPlayer;
+                } elseif ($r instanceof RoundResultBlocked) {
+                    // Blocked: the winning team's lowest hand starts next (with the
+                    // low-player tiebreak, that is the lowest hand of all)
+                    $lastWinner = $r->lowPlayer ?? self::lowestSeatOf(
+                        $r->handTotals, $winningTeam, $match->round->firstMover, $match->config->numPlayers,
+                    );
                 } else {
-                    // Blocked sum tiebreak or tie: first mover starts again
                     $lastWinner = $match->round->firstMover;
                 }
             } else {

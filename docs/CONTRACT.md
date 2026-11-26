@@ -141,7 +141,11 @@ same rule has the same name on both sides — change both together.
 with any tile they like. That tile is `openingDouble` on `RoundState` and
 `ClientView`, public for the whole round: until it is played, everyone knows
 the opener holds it. Later rounds are opened by the last
-winner, and `openingDouble` is null.
+winner (`lastWinner`), and `openingDouble` is null: after a domino, the
+player who went out; after a block, the winning side's player with the
+lowest hand (with teams, the lower of the two partners; on equal hands, the
+first of them in turn order from the round's opener). A tied block is opened
+by the same player again.
 
 | domino-front | domino-backend |
 | --- | --- |

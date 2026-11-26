@@ -774,6 +774,31 @@ describe('applyRoundResult', function () {
         expect($updated->matchWinner)->toBeNull();
     });
 
+    it('has the winning team\'s lowest hand open after a block on the team sum', function () {
+        $config = engineConfig(4, true, 150);
+        $match = GameEngine::initMatch($config);
+        // Seat 0 opened the blocked round, but seats 1 and 3 won on the team sum.
+        $match->round->firstMover = 0;
+        $match->round->roundResult = new RoundResultBlocked(
+            points: 20, handTotals: [8, 9, 12, 3], winningTeam: 1, team0: 20, team1: 12, tiebreak: 'sum',
+        );
+
+        expect(GameEngine::applyRoundResult($match)->lastWinner)->toBe(3);
+    });
+
+    it('breaks a tie between the winning team\'s hands by turn order from the opener', function () {
+        $config = engineConfig(4, true, 150);
+        $match = GameEngine::initMatch($config);
+        $match->round->roundResult = new RoundResultBlocked(
+            points: 20, handTotals: [8, 6, 12, 6], winningTeam: 1, team0: 20, team1: 12, tiebreak: 'sum',
+        );
+
+        $match->round->firstMover = 2;
+        expect(GameEngine::applyRoundResult($match)->lastWinner)->toBe(3);
+        $match->round->firstMover = 0;
+        expect(GameEngine::applyRoundResult($match)->lastWinner)->toBe(1);
+    });
+
     it('makes the round\'s first mover the last winner on a tie', function () {
         $config = engineConfig(2, false, 100);
         $match = GameEngine::initMatch($config);
